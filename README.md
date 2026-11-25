@@ -2,7 +2,7 @@
 
 **An 8-voice analog polysynth plugin for macOS — CLAP, VST3 and AU.**
 
-![PRO8](media/pro8.png)
+![PRO8](docs/media/pro8.png)
 
 PRO8 is a circuit-level emulation of the Behringer PRO-800, a modern 8-voice poly descended from the Prophet-600.
 It was built side by side with a real unit, with every stage of the signal path measured on the hardware and
@@ -14,16 +14,18 @@ DSP by **mtzvfilm** · ig: [mtzv_film](https://instagram.com/mtzv_film)
 
 ## Sound demos
 
+### 🔊 [Listen in the browser](https://mtzvfilm.github.io/PRO8/)
+
 Rendered straight from the plugin engine with its built-in effects, presets from the PRO8 bank (no external processing):
 
 | | preset | |
 |---|---|---|
-| ▶ [01 Velvet Horizon](media/audio/01_velvet_horizon_pad.m4a) | pad | detuned saws, chorus I, hall |
-| ▶ [02 Cloud Choir](media/audio/02_cloud_choir_pad.m4a) | pad | soft wide pad, chorus II, cloud reverb |
-| ▶ [03 Deep Field](media/audio/03_deep_field_ambient.m4a) | ambient | slow-swept texture, tape delay, cloud reverb with shimmer |
-| ▶ [04 Glass Rain](media/audio/04_glass_rain_ambient.m4a) | ambient | glassy melody, ping-pong delay, plate |
-| ▶ [05 Earth Hum](media/audio/05_earth_hum_drone.m4a) | drone bass | low resonant drone, glide |
-| ▶ [06 Chrome Lead](media/audio/06_chrome_lead.m4a) | lead | lead with glide and delayed vibrato, tape delay |
+| ▶ [01 Velvet Horizon](docs/media/audio/01_velvet_horizon_pad.m4a) | pad | detuned saws, chorus I, hall |
+| ▶ [02 Cloud Choir](docs/media/audio/02_cloud_choir_pad.m4a) | pad | soft wide pad, chorus II, cloud reverb |
+| ▶ [03 Deep Field](docs/media/audio/03_deep_field_ambient.m4a) | ambient | slow-swept texture, tape delay, cloud reverb with shimmer |
+| ▶ [04 Glass Rain](docs/media/audio/04_glass_rain_ambient.m4a) | ambient | glassy melody, ping-pong delay, plate |
+| ▶ [05 Earth Hum](docs/media/audio/05_earth_hum_drone.m4a) | drone bass | low resonant drone, glide |
+| ▶ [06 Chrome Lead](docs/media/audio/06_chrome_lead.m4a) | lead | lead with glide and delayed vibrato, tape delay |
 
 ---
 
@@ -90,7 +92,7 @@ CLAP, VST3 and AU, through [clap-wrapper](https://github.com/free-audio/clap-wra
 | `core/pro8_core.*` | one synth instance: engine + effects + presets + panel bridge + state |
 | `core/ui.html` | the panel |
 | `plugin/` | CLAP plugin, VST3 / AU wrapping, installer |
-| `media/` | screenshot and sound demos |
+| `docs/` | project page (GitHub Pages), screenshot and sound demos |
 
 ## Disclaimer
 
