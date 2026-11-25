@@ -2,11 +2,28 @@
 
 **An 8-voice analog polysynth plugin for macOS — CLAP, VST3 and AU.**
 
+![PRO8](media/pro8.png)
+
 PRO8 is a circuit-level emulation of the Behringer PRO-800, a modern 8-voice poly descended from the Prophet-600.
 It was built side by side with a real unit, with every stage of the signal path measured on the hardware and
 matched in the code — not designed by ear, not approximated from a manual.
 
 DSP by **mtzvfilm** · ig: [mtzv_film](https://instagram.com/mtzv_film)
+
+### ⬇ [Download PRO8 1.0 for macOS](https://github.com/mtzvfilm/PRO8/releases/latest) — CLAP + VST3 + AU in one installer
+
+## Sound demos
+
+Rendered straight from the plugin engine with its built-in effects, presets from the PRO8 bank (no external processing):
+
+| | preset | |
+|---|---|---|
+| ▶ [01 Velvet Horizon](media/audio/01_velvet_horizon_pad.m4a) | pad | detuned saws, chorus I, hall |
+| ▶ [02 Cloud Choir](media/audio/02_cloud_choir_pad.m4a) | pad | soft wide pad, chorus II, cloud reverb |
+| ▶ [03 Deep Field](media/audio/03_deep_field_ambient.m4a) | ambient | slow-swept texture, tape delay, cloud reverb with shimmer |
+| ▶ [04 Glass Rain](media/audio/04_glass_rain_ambient.m4a) | ambient | glassy melody, ping-pong delay, plate |
+| ▶ [05 Earth Hum](media/audio/05_earth_hum_drone.m4a) | drone bass | low resonant drone, glide |
+| ▶ [06 Chrome Lead](media/audio/06_chrome_lead.m4a) | lead | lead with glide and delayed vibrato, tape delay |
 
 ---
 
@@ -48,6 +65,12 @@ sings — not a generic "analog-style" synth.
 - MIDI CCs follow the PRO-800 MIDI map
 - Factory content: the PRO-800 factory bank and a 100-patch PRO8 bank (pads, ambient, drones, leads, arpeggios)
 
+## Installing
+
+Download `PRO8-1.0.0.pkg` from [Releases](https://github.com/mtzvfilm/PRO8/releases/latest). The installer is not signed
+with an Apple developer certificate: right-click it → **Open** (or System Settings → Privacy & Security → **Open Anyway**).
+The plugins are installed to `/Library/Audio/Plug-Ins`; presets live in `~/Library/Application Support/PRO8/Banks`.
+
 ## Building (macOS 11+, Apple Silicon and Intel)
 
 CLAP, VST3 and AU, through [clap-wrapper](https://github.com/free-audio/clap-wrapper):
@@ -67,6 +90,7 @@ CLAP, VST3 and AU, through [clap-wrapper](https://github.com/free-audio/clap-wra
 | `core/pro8_core.*` | one synth instance: engine + effects + presets + panel bridge + state |
 | `core/ui.html` | the panel |
 | `plugin/` | CLAP plugin, VST3 / AU wrapping, installer |
+| `media/` | screenshot and sound demos |
 
 ## Disclaimer
 
