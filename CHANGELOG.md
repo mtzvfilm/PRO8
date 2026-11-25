@@ -9,4 +9,4 @@ First public release.
 - Effects, preset library (26 banks, .syx / .fxp / .fxb), arpeggiator, DAW tempo sync, poly unison, VINTAGE / OSC SPREAD, master tune
 - Factory content: PRO-800 factory bank (A) and the PRO8 bank (B)
 
-Changes since 1.0.0: none yet.
+Changes since 1.0.0: none to the plugin. Repository: GPL-3.0 license, project page with sound demos.

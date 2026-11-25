@@ -94,6 +94,12 @@ CLAP, VST3 and AU, through [clap-wrapper](https://github.com/free-audio/clap-wra
 | `plugin/` | CLAP plugin, VST3 / AU wrapping, installer |
 | `docs/` | project page (GitHub Pages), screenshot and sound demos |
 
+## License
+
+PRO8 is free software, released under the **GNU General Public License v3.0** — see [LICENSE](LICENSE).
+Copyright © 2026 mtzvfilm. Third-party components keep their own licenses: CLAP and clap-wrapper (MIT), VST3 SDK (MIT),
+AudioUnitSDK (Apache 2.0), DSEG font (SIL OFL 1.1, `core/fonts/DSEG-LICENSE.txt`).
+
 ## Disclaimer
 
 PRO8 is an independent project. Behringer and PRO-800 are trademarks of their respective owners; they are named only to
