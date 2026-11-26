@@ -258,16 +258,30 @@ void Engine::arp_step() {
     else if (arp_mode == 5) idx = (int)((uni(rng) + 1) * 0.5 * N) % N;
     else idx = arp_pos % N;
     ++arp_pos; ++arp_stepno; arp_note = order[idx];
-    int m = arp_mode; arp_mode = 0; note_on(arp_note, arp_vel); arp_mode = m;
+    // arp notes are not keys: they bypass the key / held-note lists (MONO and UNISON would keep them as held keys)
+    if (P.unison && !poly_uni) uni_play(arp_note, arp_vel);
+    else if (mono && !P.unison) { V[0].uslot = -1; start_voice(0, arp_note, arp_vel, 0, false); }
+    else note_on_poly(arp_note, arp_vel);
 }
 void Engine::note_on(int n, int vel) {
     if (vel == 0) { note_off(n); return; }
+    keys[n & 127] = true;
     if (arp_mode) {
         if (arp_held.empty()) { arp_pos = 0; arp_t = 0; arp_stepno = 0; arp_vel = vel; arp_held.push_back(n); arp_step(); arp_off_t = arp_gate * arp_step_len(); }
         else arp_held.push_back(n);
         return;
     }
     if (P.unison && !poly_uni) {
+        uni_held.erase(std::remove_if(uni_held.begin(), uni_held.end(), [&](auto& h) { return h.first == n; }), uni_held.end());
+        uni_held.push_back({n, vel}); uni_play(n, vel); return;
+    }
+    if (mono && !P.unison) {   // MONO: voice 1 only, last-note priority; releasing returns to the previous held note
+        mono_held.erase(std::remove_if(mono_held.begin(), mono_held.end(), [&](auto& h) { return h.first == n; }), mono_held.end());
+        mono_held.push_back({n, vel}); V[0].uslot = -1; start_voice(0, n, vel, 0, false); return;
+    }
+    note_on_poly(n, vel);
+}
+void Engine::uni_play(int n, int vel) {
         // all enabled voices play the note: voice slot 0 = root, slot j = pattern[j-1] semitones (0xFF = unused)
         int j = 0;
         for (int i = 0; i < NV; ++i) {
@@ -277,12 +291,8 @@ void Engine::note_on(int n, int vel) {
             if (iv == 0xFF) { V[i].gate = false; V[i].aenv.gate_off(); V[i].fenv.gate_off(); continue; }
             V[i].uslot = i % NV_HW; start_voice(i, n, vel, iv, false);
         }
-        return;
-    }
-    if (mono && !P.unison) {   // MONO: voice 1 only, last-note priority; releasing returns to the previous held note
-        mono_held.erase(std::remove_if(mono_held.begin(), mono_held.end(), [&](auto& h) { return h.first == n; }), mono_held.end());
-        mono_held.push_back({n, vel}); V[0].uslot = -1; start_voice(0, n, vel, 0, false); return;
-    }
+}
+void Engine::note_on_poly(int n, int vel) {
     if (P.unison && poly_uni) {   // POLY UNISON: every note gets its own stack of uni_n voices (pattern intervals, detune fan by slot)
         for (auto& v : V) if (v.gate && v.note == n) { v.gate = false; v.aenv.gate_off(); v.fenv.gate_off(); }
         for (int k = 0; k < uni_n; ++k) {
@@ -321,9 +331,10 @@ int Engine::alloc_voice(bool oldest) {   // a free voice (round robin), else ste
 }
 
 void Engine::note_off(int n) {
+    keys[n & 127] = false;
     if (arp_mode) {
         arp_held.erase(std::remove(arp_held.begin(), arp_held.end(), n), arp_held.end());
-        if (arp_held.empty() && arp_note >= 0) { int k = arp_note; arp_note = -1; int m = arp_mode; arp_mode = 0; note_off(k); arp_mode = m; }
+        if (arp_held.empty() && arp_note >= 0) { int k = arp_note; arp_note = -1; int m = arp_mode; arp_mode = 0; bool kd = keys[k & 127]; note_off(k); keys[k & 127] = kd; arp_mode = m; }
         return;
     }
     if (mono && !P.unison) {
@@ -333,11 +344,45 @@ void Engine::note_off(int n) {
         if (top && !mono_held.empty()) { start_voice(0, mono_held.back().first, mono_held.back().second, 0, false); return; }
         if (!mono_held.empty()) return;
     }
+    if (P.unison && !poly_uni) {   // UNISON: releasing the sounding key returns to the previous held one
+        bool top = !uni_held.empty() && uni_held.back().first == n;
+        uni_held.erase(std::remove_if(uni_held.begin(), uni_held.end(), [&](auto& h) { return h.first == n; }), uni_held.end());
+        if (sustain_pedal) return;
+        if (top && !uni_held.empty()) { uni_play(uni_held.back().first, uni_held.back().second); return; }
+        if (!uni_held.empty()) return;
+    }
     if (sustain_pedal) return;
     for (auto& v : V)
         if (v.gate && (v.note == n || v.pend_note == n)) { v.gate = false; v.pend_note = -1; v.aenv.gate_off(); v.fenv.gate_off(); }
 }
-void Engine::all_notes_off() { for (auto& v : V) { v.gate = false; v.pend_note = -1; v.aenv.gate_off(); v.fenv.gate_off(); } }
+void Engine::all_notes_off() {
+    for (auto& v : V) { v.gate = false; v.pend_note = -1; v.aenv.gate_off(); v.fenv.gate_off(); }
+    for (auto& k : keys) k = false;
+    uni_held.clear(); mono_held.clear();
+}
+void Engine::change_arp_mode(int m) {
+    if ((m != 0) == (arp_mode != 0)) { arp_mode = m; return; }   // only the pattern changed
+    // switching on: the voices of the held keys stop and the keys become the arpeggio; switching off: the arpeggio stops
+    // (before, note-offs went to the other path and those voices sounded forever)
+    for (auto& v : V) if (v.gate) { v.gate = false; v.pend_note = -1; v.aenv.gate_off(); v.fenv.gate_off(); }
+    arp_note = -1; arp_off_t = -1; arp_held.clear(); mono_held.clear(); uni_held.clear();
+    arp_mode = m;
+    if (arp_mode) for (int k = 0; k < 128; ++k) if (keys[k]) note_on(k, arp_vel);
+}
+// pedal up: release the voices whose key is no longer down (mono: back to the last held key, or release)
+void Engine::sustain_release() {
+    if (arp_mode) return;
+    if (mono && !P.unison) {
+        if (!mono_held.empty()) { if (V[0].note != mono_held.back().first) start_voice(0, mono_held.back().first, mono_held.back().second, 0, false); return; }
+    }
+    if (P.unison && !poly_uni && !uni_held.empty()) {
+        int sounding = -1; for (auto& v : V) if (v.gate) { sounding = v.note; break; }
+        if (sounding != uni_held.back().first) uni_play(uni_held.back().first, uni_held.back().second);
+        return;
+    }
+    for (auto& v : V)
+        if (v.gate && v.note >= 0 && !keys[v.note & 127]) { v.gate = false; v.pend_note = -1; v.aenv.gate_off(); v.fenv.gate_off(); }
+}
 
 void Engine::midi(uint8_t st, uint8_t d1, uint8_t d2) {
     switch (st & 0xF0) {
@@ -347,7 +392,7 @@ void Engine::midi(uint8_t st, uint8_t d1, uint8_t d2) {
     case 0xD0: pressure = d1; break;
     case 0xB0:
         if (d1 == 1) wheel = d2 / 127.0;
-        else if (d1 == 64) { sustain_pedal = d2 >= 64; if (!sustain_pedal) for (auto& v : V) if (v.gate && false) {} }
+        else if (d1 == 64) { bool down = d2 >= 64; bool was = sustain_pedal; sustain_pedal = down; if (was && !down) sustain_release(); }
         else if (d1 == 123 || d1 == 120) all_notes_off();
         break;
     }
@@ -586,7 +631,7 @@ void Engine::render(float* out, int n) {
     auto shared = [&](int s, double& lfo, double& vib) {   // per-sample global modulation (LFO, vibrato, arpeggio, knob glide)
         if (glide_p && (s & 15) == 0) {   // knob glide, every 16 samples: one-pole ~10 ms
             const double kg = 1.0 - std::exp(-16.0 * dt / 0.010); double* tv[64]; int m = 0; bool more = false;
-            Pt.each_cont([&](double& x) { tv[m++] = &x; }); m = 0;
+            this->Pt.each_cont([&](double& x) { tv[m++] = &x; }); m = 0;
             P.each_cont([&](double& x) { double t = *tv[m++]; x += kg * (t - x); if (std::fabs(t - x) > 0.5) more = true; else x = t; });
             glide_p = more;
         }

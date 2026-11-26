@@ -122,7 +122,7 @@ html, body { margin:0; height:100%; background:#000; overflow:hidden; font-famil
   <div class="row" id="r3"></div>
   <div class="row" id="r4"></div>
 </div>
-<div id="foot"><span>VER. 1.0.1</span><span>DSP BY MTZVFILM · IG: MTZV_FILM</span></div>
+<div id="foot"><span>VER. 1.0.2</span><span>DSP BY MTZVFILM · IG: MTZV_FILM</span></div>
 <div class="drawer" id="fxpage">
   <h3>CHORUS</h3>
   <div class="srow"><span class="sl">ON</span><div class="tg" data-fx="0"><i></i></div></div>
@@ -328,7 +328,8 @@ function renderPresets() {
   for (let i = 0; i < 100; i++) {
     const n = curBank * 100 + i, nm = names[n];
     if (q && !(nm || '').toLowerCase().includes(q)) continue;
-    const d = document.createElement('div'); d.innerHTML = `<span>${slotTxt(n)}</span>${nm === undefined ? '—' : nm}`;
+    const d = document.createElement('div'); const sp = document.createElement('span'); sp.textContent = slotTxt(n);
+    d.append(sp, nm === undefined ? '—' : nm);   // names as text (a .syx name may contain < >)
     d.className = (nm === undefined ? 'empty' : '') + (n === curProg ? ' cur' : '') + (n === selSlot ? ' psel' : '');
     d.onclick = () => { selSlot = n; if (nm !== undefined) send({ t: 'progset', n }); else renderPresets();
       document.getElementById('pnm').value = nm !== undefined ? nm : document.getElementById('pnm').value; };

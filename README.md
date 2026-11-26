@@ -1,6 +1,6 @@
 # PRO8
 
-**An 8-voice analog polysynth plugin for macOS — CLAP, VST3 and AU.**
+**An 8-voice analog polysynth plugin for macOS and Windows — CLAP, VST3 and AU.**
 
 ![PRO8](docs/media/pro8.png)
 
@@ -10,7 +10,7 @@ matched in the code — not designed by ear, not approximated from a manual.
 
 DSP by **mtzvfilm** · ig: [mtzv_film](https://instagram.com/mtzv_film)
 
-### ⬇ [Download PRO8 1.0.1 for macOS](https://github.com/mtzvfilm/PRO8/releases/latest) — CLAP + VST3 + AU in one installer
+### ⬇ [Download PRO8 1.0.2](https://github.com/mtzvfilm/PRO8/releases/latest) — macOS: CLAP + VST3 + AU in one installer · Windows: VST3 + CLAP
 
 ## Sound demos
 
@@ -26,6 +26,16 @@ Rendered straight from the plugin engine with its built-in effects, presets from
 | ▶ [04 Glass Rain](docs/media/audio/04_glass_rain_ambient.m4a) | ambient | glassy melody, ping-pong delay, plate |
 | ▶ [05 Earth Hum](docs/media/audio/05_earth_hum_drone.m4a) | drone bass | low resonant drone, glide |
 | ▶ [06 Chrome Lead](docs/media/audio/06_chrome_lead.m4a) | lead | lead with glide and delayed vibrato, tape delay |
+| ▶ [07 Warm Cathedral](docs/media/audio/07_warm_cathedral_pad.m4a) | pad | slow major-seventh chords, chorus I+II, hall |
+| ▶ [08 Tape Strings](docs/media/audio/08_tape_strings.m4a) | strings | A minor progression with a top line, chorus I, hall |
+| ▶ [09 Glass Garden](docs/media/audio/09_glass_garden.m4a) | bells | pentatonic bell melody, ping-pong delay, plate |
+| ▶ [10 Ghost Station](docs/media/audio/10_ghost_station_ambient.m4a) | ambient | slow cluster swells, tape delay, cloud reverb with shimmer |
+| ▶ [11 Firefly](docs/media/audio/11_firefly_bass.m4a) | bass | fast saw bass groove, chorus, BBD slapback, plate |
+| ▶ [12 Gravity Well](docs/media/audio/12_gravity_well_drone.m4a) | drone | low D with a slow fifth and octave bloom, chorus II, hall |
+| ▶ [13 Night Drive](docs/media/audio/13_night_drive_lead.m4a) | lead | synthwave melody, tape delay, hall |
+| ▶ [14 Neon Solo](docs/media/audio/14_neon_solo_lead.m4a) | lead | D dorian solo over chords, tape delay, hall |
+| ▶ [15 Prism Arp](docs/media/audio/15_prism_arp.m4a) | arpeggio | arpeggiator as played, cutoff and resonance sweep, ping-pong delay |
+| ▶ [16 Clockwork](docs/media/audio/16_clockwork_arp.m4a) | arpeggio | arpeggiator up/down, cutoff and resonance sweep, BBD delay, plate |
 
 ---
 
@@ -69,11 +79,18 @@ sings — not a generic "analog-style" synth.
 
 ## Installing
 
-Download `PRO8-1.0.1.pkg` from [Releases](https://github.com/mtzvfilm/PRO8/releases/latest). The installer is not signed
+Download `PRO8-1.0.2.pkg` from [Releases](https://github.com/mtzvfilm/PRO8/releases/latest). The installer is not signed
 with an Apple developer certificate: right-click it → **Open** (or System Settings → Privacy & Security → **Open Anyway**).
 The plugins are installed to `/Library/Audio/Plug-Ins`; presets live in `~/Library/Application Support/PRO8/Banks`.
 
-## Building (macOS 11+, Apple Silicon and Intel)
+**Windows 10 / 11 (x64):** download `PRO8-1.0.2-windows-x64.zip`, copy the folder `PRO8.vst3` to
+`C:\Program Files\Common Files\VST3\` and `PRO8.clap` to `C:\Program Files\Common Files\CLAP\`. The panel needs the
+Microsoft Edge WebView2 Runtime (part of Windows 10 / 11). Presets live in `%APPDATA%\PRO8\Banks`; projects and
+presets move between macOS and Windows.
+
+## Building
+
+### macOS 11+ (Apple Silicon and Intel)
 
 CLAP, VST3 and AU, through [clap-wrapper](https://github.com/free-audio/clap-wrapper):
 
@@ -82,23 +99,35 @@ CLAP, VST3 and AU, through [clap-wrapper](https://github.com/free-audio/clap-wra
     git clone --depth 1 https://github.com/free-audio/clap-wrapper.git plugin/third_party/clap-wrapper
     cmake -S plugin -B plugin/build -G Ninja -DCMAKE_BUILD_TYPE=Release
     cmake --build plugin/build          # installs to ~/Library/Audio/Plug-Ins
-    sh plugin/make_pkg.sh               # plugin/build/PRO8-1.0.1.pkg (CLAP + VST3 + AU)
+    sh plugin/make_pkg.sh               # plugin/build/PRO8-1.0.2.pkg (CLAP + VST3 + AU)
+
+### Windows 10 / 11 (VST3 + CLAP)
+
+Visual Studio 2022 with "Desktop development with C++", CMake and Git; the panel runs in WebView2.
+
+    git clone --depth 1 https://github.com/free-audio/clap.git plugin/third_party/clap
+    git clone --depth 1 https://github.com/free-audio/clap-wrapper.git plugin/third_party/clap-wrapper
+    cmake -S plugin -B plugin/build -G "Visual Studio 17 2022" -A x64
+    cmake --build plugin/build --config Release
+    powershell -ExecutionPolicy Bypass -File plugin/make_zip_win.ps1   # plugin/build/PRO8-1.0.2-windows-x64.zip
 
 ## Layout
 
 | path | |
 |---|---|
 | `dsp/` | voice engine (portable C++17) and effects |
-| `core/pro8_core.*` | one synth instance: engine + effects + presets + panel bridge + state |
+| `core/pro8_core.*` | one synth instance: engine + effects + presets + panel bridge + state (portable C++17) |
+| `core/platform_*` | the OS calls of the core (macOS / Windows) |
 | `core/ui.html` | the panel |
-| `plugin/` | CLAP plugin, VST3 / AU wrapping, installer |
+| `plugin/` | CLAP plugin, VST3 / AU wrapping, panel window (`gui_mac.mm` WKWebView, `gui_win.cpp` WebView2), installers |
 | `docs/` | project page (GitHub Pages), screenshot and sound demos |
 
 ## License
 
 PRO8 is free software, released under the **GNU General Public License v3.0** — see [LICENSE](LICENSE).
 Copyright © 2026 mtzvfilm. Third-party components keep their own licenses: CLAP and clap-wrapper (MIT), VST3 SDK (MIT),
-AudioUnitSDK (Apache 2.0), DSEG font (SIL OFL 1.1, `core/fonts/DSEG-LICENSE.txt`) — full texts in
+AudioUnitSDK (Apache 2.0, macOS), Microsoft WebView2 SDK loader (BSD 3-Clause, Windows), DSEG font (SIL OFL 1.1,
+`core/fonts/DSEG-LICENSE.txt`) — full texts in
 [`plugin/resources/THIRD_PARTY_LICENSES.txt`](plugin/resources/THIRD_PARTY_LICENSES.txt), also shipped inside every plugin bundle.
 
 ## Disclaimer
@@ -106,4 +135,5 @@ AudioUnitSDK (Apache 2.0), DSEG font (SIL OFL 1.1, `core/fonts/DSEG-LICENSE.txt`
 PRO8 is an independent project, not affiliated with or endorsed by Behringer / Music Tribe or Sequential. Behringer, PRO-800,
 Sequential and Prophet-600 are trademarks of their respective owners; they are named only to describe the instrument that
 was measured. No factory presets or firmware of the hardware are distributed with PRO8. VST is a registered trademark of
-Steinberg Media Technologies GmbH; Audio Units is a trademark of Apple Inc.
+Steinberg Media Technologies GmbH; Audio Units is a trademark of Apple Inc.; Windows and Microsoft Edge are
+trademarks of Microsoft Corporation.

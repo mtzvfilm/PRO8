@@ -46,8 +46,8 @@ struct Patch {
         mod_delay = u16(d, 76); vib_speed = u16(d, 78); vib_amt = u16(d, 80); detune = u16(d, 82); mw_target = d[84];
         for (int i = 0; i < 7; ++i) unison_pattern[i] = d[87 + i];
         arp = d[149];
-        noise = u16(d, 142); vca_at = u16(d, 144); vcf_at = u16(d, 146); ae_speed = d[148];
-        std::memcpy(name, d + 150, 16); name[16] = 0;
+        noise = u16(d, 142); vca_at = u16(d, 144); vcf_at = u16(d, 146); ae_speed = d[148];   // n >= 150: all in range
+        std::memset(name, 0, sizeof name); if (n > 150) std::memcpy(name, d + 150, n >= 166 ? 16 : n - 150);
         if (n >= 173) {
             lfo_at = u16(d, 166); voice_spread = d[168]; kbd_ref = d[169]; glide_mode = d[170]; pitch_range = u16(d, 171);
         }

@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 mtzvfilm. PRO8 - https://github.com/mtzvfilm/PRO8
 // PRO8 core: one synth instance (voice engine + effects + edit buffer + settings) and the shared preset library.
-// Used by the plugin (plugin/src/pro8_clap.mm); the panel (core/ui.html) talks to
-// it through handle() (messages from the web view) and the js callback (calls into the web view).
+// Portable C++17; the OS-specific bits are in core/platform.h. Used by the plugin (plugin/src/pro8_clap.cpp);
+// the panel (core/ui.html) talks to it through handle() (JSON messages from the web view) and the js callback
+// (JavaScript to evaluate in the web view).
 #pragma once
-#import <Foundation/Foundation.h>
 #include <array>
+#include <cstdint>
 #include <functional>
 #include <mutex>
 #include <string>
 #include <vector>
 #include "../dsp/p800_engine.h"
 #include "../dsp/p800_fx.h"
+#include "json.h"
 
 namespace pro8 {
 
@@ -21,21 +23,23 @@ class Core {
 public:
     explicit Core(bool plugin);
     // web view bridge
-    std::function<void(NSString*)> js;          // evaluate in the panel (any thread; the caller posts it to the main thread)
-    void handle(NSDictionary* m);               // a message from the panel
-    void ui_ready();                            // push the whole state to a freshly loaded panel
+    std::function<void(const std::string&)> js;    // evaluate in the panel (any thread; the GUI layer posts it to the UI thread)
+    void handle(const Json& m);                    // a message from the panel (UI thread)
+    void handle_json(const std::string& m) { handle(Json::parse(m)); }
+    void ui_ready();                               // push the whole state to a freshly loaded panel
     // audio (render thread)
     void set_sample_rate(double sr);
-    void render(float* L, float* R, int n);     // stereo out, engine + effects + volume
+    void render(float* L, float* R, int n);        // stereo out, engine + effects + volume
     void note(int n, int vel, bool on);
-    void midi(uint8_t st, uint8_t d1, uint8_t d2);   // CCs follow the PRO-800 MIDI map, the rest goes to the engine
-    void midi_clock(uint64_t host_time);        // 0xF8 from a DAW (standalone SYNC TO DAW)
-    void midi_start();                          // 0xFA
+    void midi(uint8_t st, uint8_t d1, uint8_t d2); // CCs follow the PRO-800 MIDI map, the rest goes to the engine
+    static bool is_panel_cc(int cc);               // a CC that moves the panel (edit buffer + UI: main thread); others are audio-thread safe
+    void midi_clock(double seconds = 0);           // 0xF8 from a DAW (standalone SYNC TO DAW); 0 = now
+    void midi_start();                             // 0xFA
     void set_host_tempo(double bpm, bool playing_started);   // plugin: the host transport
-    // plugin state (patch, FX, program, settings, arpeggiator)
-    NSData* get_state();
-    bool set_state(NSData* d);
-    std::mutex m;                               // guards engine / FX against the render thread
+    // plugin state (patch, FX, program, settings, arpeggiator) as JSON
+    std::string get_state();
+    bool set_state(const std::string& d);
+    std::mutex m;                                  // guards engine / FX against the render thread
 private:
     bool plugin;
     p800::Engine eng; p800fx::FX fx;
@@ -57,7 +61,9 @@ private:
     void send_list();
 };
 
-// preset library: banks A..Z x 100 slots, one .syx per bank in ~/Library/Application Support/PRO8/Banks
-void library_init(NSString* seed_dir);         // load; first start: copy the seed banks (A..Z.syx in seed_dir)
+// preset library: banks A..Z x 100 slots, one .syx per bank in platform::banks_dir()
+// first start (no bank files yet): seed(bank 0..25, bytes) supplies the factory banks shipped with the plugin
+using SeedFn = std::function<bool(int bank, std::vector<uint8_t>& data)>;
+void library_init(const SeedFn& seed);
 
 }  // namespace pro8

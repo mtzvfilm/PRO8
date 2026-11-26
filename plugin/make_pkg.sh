@@ -4,7 +4,7 @@
 # Security > Open Anyway). Files installed by the installer carry no quarantine flag, so the plugins load in the DAW.
 set -e
 cd "$(dirname "$0")"
-V=1.0.1; OUT=build/out; W=build/pkg; rm -rf $W; mkdir -p $W
+V=1.0.2; OUT=build/out; W=build/pkg; rm -rf $W; mkdir -p $W
 for f in clap:CLAP:PRO8.clap vst3:VST3:PRO8.vst3 au:Components:PRO8.component; do
     id=${f%%:*}; rest=${f#*:}; dir=${rest%%:*}; b=${rest#*:}
     mkdir -p $W/root_$id/Library/Audio/Plug-Ins/$dir

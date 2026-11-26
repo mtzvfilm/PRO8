@@ -2,6 +2,7 @@
 // Copyright (C) 2026 mtzvfilm. PRO8 - https://github.com/mtzvfilm/PRO8
 // PRO-800 behavioural DSP engine (portable C++17, no dependencies). Model spec: docs/MODEL.md
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <cmath>
 #include <random>
@@ -75,14 +76,15 @@ public:
         if (!smooth) { P = p; Pt = p; glide_p = false; }
         else { Patch keep = P; P = p; double* d[64]; int n = 0; keep.each_cont([&](double& x) { d[n++] = &x; }); n = 0;
                P.each_cont([&](double& x) { x = *d[n++]; }); Pt = p; glide_p = true; }
-        arp_mode = arp_ui_mode >= 0 ? arp_ui_mode : p.arp;
+        change_arp_mode(arp_ui_mode >= 0 ? arp_ui_mode : p.arp);
     }
     const Patch& patch() const { return P; }
     void set_voice_mask(uint8_t m) { mask = m; }        // Kill Voices (bit = voice enabled, voices 1-8)
-    void set_voices(int n) { all_notes_off(); nvoices = std::clamp(n, 1, NV); rr = 0; }   // polyphony 8/16/32/64
+    // the three below stop the notes only when the value really changes (the host calls them with every settings update)
+    void set_voices(int n) { n = std::clamp(n, 1, NV); if (n == nvoices) return; all_notes_off(); nvoices = n; rr = 0; }   // polyphony 8/16/32/64
     void set_unison_voices(int n) { uni_n = std::clamp(n, 1, NV_HW); }                   // voices stacked in unison 2/4/6/8
-    void set_poly_unison(bool on) { all_notes_off(); poly_uni = on; }                     // unison stacks per note, playable polyphonically
-    void set_mono(bool on) { all_notes_off(); mono = on; mono_held.clear(); }              // MONO: one voice, last-note priority
+    void set_poly_unison(bool on) { if (on == poly_uni) return; all_notes_off(); poly_uni = on; }                     // unison stacks per note, playable polyphonically
+    void set_mono(bool on) { if (on == mono) return; all_notes_off(); mono = on; mono_held.clear(); }              // MONO: one voice, last-note priority
     int alloc_voice(bool oldest);
     int pool() const { return poly_uni && P.unison ? std::min(NV, std::max(nvoices, uni_n * 8)) : nvoices; }   // POLY UNISON: 8 notes x a full stack (multi-core)
     bool on(int i) const { return i < pool() && (i >= NV_HW || (mask >> i & 1)); }
@@ -94,6 +96,7 @@ public:
     void set_master_tune(double cents) { u_tune = cents; }   // worker threads for the voices (0 = all on the calling thread)
     void midi(uint8_t st, uint8_t d1, uint8_t d2);
     void note_on(int n, int v);
+    void note_on_poly(int n, int v);
     void note_off(int n);
     void all_notes_off();
     void render(float* out, int n);                     // mono
@@ -121,6 +124,10 @@ private:
     double bend = 0, wheel = 0, pressure = 0;
     double hp_x = 0, hp_y = 0;
     bool sustain_pedal = false;
+    bool keys[128] = {};                             // keys physically down (sustain: released voices of keys that are up)
+    void sustain_release();
+    std::vector<std::pair<int, int>> uni_held;      // UNISON (not poly): held keys, last-note priority like MONO
+    void uni_play(int n, int vel);
     // arpeggiator. Patch byte 149: 1 up, 2 down, 3 up/down, 4 up then down, 5 random, 6 as played (PRO-800 manual + m_arp).
     // User settings (not in the patch, like the OB-6): mode override, 1-3 octaves, clock division of the tempo, gate.
     int arp_mode = 0; std::vector<int> arp_held; int arp_pos = 0, arp_note = -1, arp_vel = 100; double arp_t = 0, arp_off_t = -1;
@@ -131,7 +138,8 @@ private:
 public:
     void set_tempo(double b) { bpm = b < 20 ? 20 : (b > 300 ? 300 : b); }
     void transport_start() { arp_t = 0; arp_pos = 0; arp_stepno = 0; lfo_ph = 0; }   // DAW start: arpeggio and synced LFO from the downbeat
-    void set_arp(int mode, int oct, int div) { arp_ui_mode = mode; arp_oct = oct < 1 ? 1 : (oct > 3 ? 3 : oct); arp_div = div < 0 ? 0 : (div > 9 ? 9 : div); arp_mode = mode >= 0 ? mode : P.arp; }
+    void set_arp(int mode, int oct, int div) { arp_ui_mode = mode; arp_oct = oct < 1 ? 1 : (oct > 3 ? 3 : oct); arp_div = div < 0 ? 0 : (div > 9 ? 9 : div); change_arp_mode(mode >= 0 ? mode : P.arp); }
+    void change_arp_mode(int m);   // arpeggiator on <-> off while playing: no hanging notes, the keys still down carry on
     void set_lfo_sync(bool on, int div) { lfo_sync = on; lfo_div = div < 0 ? 0 : (div > 10 ? 10 : div); }
 private:
     std::mt19937 rng{12345};

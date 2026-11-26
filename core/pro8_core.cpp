@@ -1,14 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 mtzvfilm. PRO8 - https://github.com/mtzvfilm/PRO8
-// PRO8 core - see pro8_core.h
-#import <Cocoa/Cocoa.h>
+// PRO8 core - see pro8_core.h (portable C++17; OS calls go through core/platform.h)
 #include "pro8_core.h"
+#include "platform.h"
 #include "basic_patch.h"
+#include <algorithm>
+#include <cctype>
+#include <chrono>
+#include <cmath>
+#include <cstdarg>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <map>
 #include <set>
 #include <tuple>
-#include <cmath>
-#include <mach/mach_time.h>
+
+namespace fs = std::filesystem;
 
 namespace pro8 {
 
@@ -72,14 +82,15 @@ static std::string patch_name(const std::vector<uint8_t>& p) {
     std::string nm; for (int i = 150; i < 166 && i < (int)p.size() && p[i] >= 32 && p[i] < 127; ++i) nm += (char)p[i];
     while (!nm.empty() && nm.back() == ' ') nm.pop_back(); return nm;
 }
-static void set_name(std::vector<uint8_t>& p, NSString* name) {
-    p.resize(173, 0); const char* c = [[name uppercaseString] cStringUsingEncoding:NSASCIIStringEncoding] ?: "";
-    int L = (int)strlen(c); for (int i = 0; i < 16; ++i) p[150 + i] = i < L ? ((c[i] >= 32 && c[i] < 127) ? (uint8_t)c[i] : '?') : 0;
+static void set_name(std::vector<uint8_t>& p, const std::string& name) {   // 16 ASCII characters, upper case; others -> '?'
+    p.resize(173, 0); std::string c;
+    for (unsigned char ch : name) { if ((ch & 0xC0) == 0x80) continue; c += ch >= 32 && ch < 127 ? (char)std::toupper(ch) : '?'; }
+    int L = (int)c.size(); for (int i = 0; i < 16; ++i) p[150 + i] = i < L ? (uint8_t)c[i] : 0;
 }
-static NSString* js_str(const std::string& s) {   // a quoted JS string literal
-    NSString* q = [NSString stringWithUTF8String:s.c_str()] ?: @"";
-    q = [[q stringByReplacingOccurrencesOfString:@"\\" withString:@""] stringByReplacingOccurrencesOfString:@"'" withString:@"’"];
-    return [NSString stringWithFormat:@"'%@'", q];
+static std::string js_str(const std::string& s) {   // a quoted JS string literal (no backslashes, ' -> U+2019)
+    std::string q = "'";
+    for (char c : s) { if (c == '\\') continue; if (c == '\'') q += "\xE2\x80\x99"; else q += c; }
+    return q + "'";
 }
 
 // ---------------------------------------------------------------- FX block in .syx: F0 7D 'P' '8' 'F' 'X' 01 lo hi <enc78 20 x 16-bit> F7
@@ -100,17 +111,6 @@ static std::vector<uint8_t> patch_msg(int n, const std::vector<uint8_t>& p) {
     std::vector<uint8_t> m(HDR, HDR + 8); m.push_back(0x78); m.push_back(n & 127); m.push_back((n >> 7) & 127);
     auto e = enc78(p); m.insert(m.end(), e.begin(), e.end()); m.push_back(0xF7); return m;
 }
-static std::vector<std::vector<uint8_t>> parse_syx(NSData* data, std::vector<int>* nums, std::vector<FxVals>* fxs) {
-    std::vector<std::vector<uint8_t>> out; if (!data) return out;
-    const uint8_t* raw = (const uint8_t*)data.bytes; size_t N = data.length;
-    for (size_t i = 0; i < N; ++i) if (raw[i] == 0xF0) { size_t j = i; while (j < N && raw[j] != 0xF7) ++j;
-        FxVals fv; if (fxs && j < N && !out.empty() && fx_parse(raw + i, j - i + 1, fv)) { (*fxs)[out.size() - 1] = fv; i = j; continue; }
-        if (j < N && j - i > 160 && std::equal(HDR, HDR + 8, raw + i) && raw[i + 8] == 0x78 && !(raw[i + 9] == 0x7E && raw[i + 10] == 0x03)) {
-            if (nums) nums->push_back(raw[i + 9] | (raw[i + 10] << 7));
-            out.push_back(normalize_patch(dec87(raw + i + 11, j - i - 11))); if (fxs) fxs->push_back(fx_default()); }
-        i = j; }
-    return out;
-}
 // .fxp / .fxb: the VST preset / bank container with an opaque chunk, plugin ID 'PrO8'
 // program chunk: 'P8PS' 01 + 173 patch bytes + 40 FX bytes; bank chunk: 'P8BK' 01 count + count x (slot, 173 + 40)
 static void be32(std::vector<uint8_t>& o, uint32_t v) { o.push_back(v >> 24); o.push_back(v >> 16); o.push_back(v >> 8); o.push_back(v); }
@@ -119,12 +119,47 @@ static void put_prog(std::vector<uint8_t>& c, const std::vector<uint8_t>& p, con
     auto q = p; q.resize(173, 0); c.insert(c.end(), q.begin(), q.end()); for (auto x : f) { c.push_back(x & 255); c.push_back(x >> 8); }
 }
 static void finish_ccnk(std::vector<uint8_t>& o) { uint32_t sz = (uint32_t)o.size() - 8; o[4] = sz >> 24; o[5] = sz >> 16; o[6] = sz >> 8; o[7] = sz; }
-static NSData* make_fxp(const std::vector<uint8_t>& p, const FxVals& f) {
+static std::vector<std::vector<uint8_t>> parse_syx(const std::vector<uint8_t>& data, std::vector<int>* nums, std::vector<FxVals>* fxs) {
+    std::vector<std::vector<uint8_t>> out; if (data.empty()) return out;
+    const uint8_t* raw = data.data(); size_t N = data.size();
+    for (size_t i = 0; i < N; ++i) if (raw[i] == 0xF0) { size_t j = i; while (j < N && raw[j] != 0xF7) ++j;
+        FxVals fv; if (fxs && j < N && !out.empty() && fx_parse(raw + i, j - i + 1, fv)) { (*fxs)[out.size() - 1] = fv; i = j; continue; }
+        if (j < N && j - i > 160 && std::equal(HDR, HDR + 8, raw + i) && raw[i + 8] == 0x78 && !(raw[i + 9] == 0x7E && raw[i + 10] == 0x03)) {
+            if (nums) nums->push_back(raw[i + 9] | (raw[i + 10] << 7));
+            out.push_back(normalize_patch(dec87(raw + i + 11, j - i - 11))); if (fxs) fxs->push_back(fx_default()); }
+        i = j; }
+    return out;
+}
+static std::vector<uint8_t> make_fxp(const std::vector<uint8_t>& p, const FxVals& f) {
     std::vector<uint8_t> c = {'P', '8', 'P', 'S', 1}; put_prog(c, p, f);
     std::vector<uint8_t> o = {'C', 'c', 'n', 'K'}; be32(o, 0); o.insert(o.end(), {'F', 'P', 'C', 'h'}); be32(o, 1); o.insert(o.end(), {'P', 'r', 'O', '8'});
     be32(o, 1); be32(o, 0); char nm[28] = {0}; std::string n = patch_name(p); memcpy(nm, n.c_str(), std::min<size_t>(27, n.size()));
     o.insert(o.end(), nm, nm + 28); be32(o, (uint32_t)c.size()); o.insert(o.end(), c.begin(), c.end()); finish_ccnk(o);
-    return [NSData dataWithBytes:o.data() length:o.size()];
+    return o;
+}
+
+// ---------------------------------------------------------------- files (UTF-8 paths)
+static fs::path upath(const std::string& s) { return fs::u8path(s); }
+static bool file_exists(const std::string& p) { std::error_code ec; return fs::is_regular_file(upath(p), ec); }
+static std::vector<uint8_t> read_file(const std::string& p) {
+    std::ifstream f(upath(p), std::ios::binary); if (!f) return {};
+    return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+static bool write_file(const std::string& p, const std::vector<uint8_t>& d) {   // atomic: temp file + rename
+    fs::path dst = upath(p), tmp = dst; tmp += ".tmp";
+    { std::ofstream f(tmp, std::ios::binary | std::ios::trunc); if (!f) return false; f.write((const char*)d.data(), (std::streamsize)d.size()); if (!f) return false; }
+    std::error_code ec; fs::rename(tmp, dst, ec);
+    if (ec) { fs::remove(dst, ec); ec.clear(); fs::rename(tmp, dst, ec); }
+    return !ec;
+}
+static void remove_file(const std::string& p) { std::error_code ec; fs::remove(upath(p), ec); }
+static std::string lower_ext(const std::string& p) {
+    std::string e = upath(p).extension().u8string(); if (!e.empty() && e[0] == '.') e.erase(0, 1);
+    for (auto& c : e) c = (char)std::tolower((unsigned char)c); return e;
+}
+static double now_s() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+static std::string fmt(const char* f, ...) {
+    char b[512]; va_list ap; va_start(ap, f); std::vsnprintf(b, sizeof b, f, ap); va_end(ap); return b;
 }
 
 // ---------------------------------------------------------------- library (shared by all instances)
@@ -135,20 +170,19 @@ static std::map<int, FxVals>& lib_fx() { static std::map<int, FxVals> m; return 
 #define libm lib_mutex()
 #define bankfile lib_patches()
 #define bankfx lib_fx()
-static NSString* lib_dir() {
-    NSString* d = [[NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES) firstObject] stringByAppendingPathComponent:@"PRO8/Banks"];
-    [[NSFileManager defaultManager] createDirectoryAtPath:d withIntermediateDirectories:YES attributes:nil error:nil]; return d;
+static std::string lib_dir() {
+    std::string d = platform::banks_dir(); std::error_code ec; fs::create_directories(upath(d), ec); return d;
 }
-static NSString* bank_path(int b) { return [lib_dir() stringByAppendingPathComponent:[NSString stringWithFormat:@"%c.syx", 'A' + b]]; }
-static NSData* bank_data(int b, int numbase) {
-    NSMutableData* d = [NSMutableData data];
+static std::string bank_path(int b) { return (upath(lib_dir()) / fmt("%c.syx", 'A' + b)).u8string(); }
+static std::vector<uint8_t> bank_data(int b, int numbase) {
+    std::vector<uint8_t> d;
     for (int i = 0; i < 100; ++i) { auto it = bankfile.find(b * 100 + i); if (it == bankfile.end()) continue;
-        auto m = patch_msg(numbase + i, it->second); [d appendBytes:m.data() length:m.size()];
-        auto f = bankfx.find(b * 100 + i); if (f != bankfx.end()) { auto fm = fx_msg(numbase + i, f->second); [d appendBytes:fm.data() length:fm.size()]; } }
+        auto m = patch_msg(numbase + i, it->second); d.insert(d.end(), m.begin(), m.end());
+        auto f = bankfx.find(b * 100 + i); if (f != bankfx.end()) { auto fm = fx_msg(numbase + i, f->second); d.insert(d.end(), fm.begin(), fm.end()); } }
     return d;
 }
-static void save_bank(int b) { NSData* d = bank_data(b, 0); if (d.length) [d writeToFile:bank_path(b) atomically:YES]; else [[NSFileManager defaultManager] removeItemAtPath:bank_path(b) error:nil]; }
-static NSData* make_fxb(int b) {
+static void save_bank(int b) { auto d = bank_data(b, 0); if (!d.empty()) write_file(bank_path(b), d); else remove_file(bank_path(b)); }
+static std::vector<uint8_t> make_fxb(int b) {
     std::vector<uint8_t> c = {'P', '8', 'B', 'K', 1, 0}; int cnt = 0;
     for (int i = 0; i < 100; ++i) { auto it = bankfile.find(b * 100 + i); if (it == bankfile.end()) continue; ++cnt; c.push_back(i);
         auto f = bankfx.find(b * 100 + i); put_prog(c, it->second, f != bankfx.end() ? f->second : fx_default()); }
@@ -156,11 +190,11 @@ static NSData* make_fxb(int b) {
     std::vector<uint8_t> o = {'C', 'c', 'n', 'K'}; be32(o, 0); o.insert(o.end(), {'F', 'B', 'C', 'h'}); be32(o, 2); o.insert(o.end(), {'P', 'r', 'O', '8'});
     be32(o, 1); be32(o, cnt); for (int i = 0; i < 4; ++i) be32(o, 0); o.insert(o.end(), 112, 0);   // current program + future[124]
     be32(o, (uint32_t)c.size()); o.insert(o.end(), c.begin(), c.end()); finish_ccnk(o);
-    return [NSData dataWithBytes:o.data() length:o.size()];
+    return o;
 }
-static std::vector<std::tuple<int, std::vector<uint8_t>, FxVals>> read_fx_file(NSData* d) {
-    std::vector<std::tuple<int, std::vector<uint8_t>, FxVals>> out; if (!d || d.length < 60) return out;
-    const uint8_t* q = (const uint8_t*)d.bytes; size_t N = d.length;
+static std::vector<std::tuple<int, std::vector<uint8_t>, FxVals>> read_fx_file(const std::vector<uint8_t>& d) {
+    std::vector<std::tuple<int, std::vector<uint8_t>, FxVals>> out; if (d.size() < 60) return out;
+    const uint8_t* q = d.data(); size_t N = d.size();
     if (memcmp(q, "CcnK", 4) || memcmp(q + 16, "PrO8", 4)) return out;
     size_t off = !memcmp(q + 8, "FPCh", 4) ? 56 : !memcmp(q + 8, "FBCh", 4) ? 156 : 0; if (!off || off + 4 > N) return out;
     uint32_t cs = rd32(q + off); const uint8_t* c = q + off + 4; if (off + 4 + cs > N || cs < 5) return out;
@@ -170,47 +204,39 @@ static std::vector<std::tuple<int, std::vector<uint8_t>, FxVals>> read_fx_file(N
     if (!memcmp(c, "P8BK", 4)) { int cnt = c[5]; for (int k = 0; k < cnt && 6 + k * (PL + 1) + PL + 1 <= cs; ++k) { const uint8_t* x = c + 6 + k * (PL + 1); auto [p, f] = prog(x + 1); out.push_back({x[0], p, f}); } }
     return out;
 }
-static int import_bank(NSData* data, int b) {
+static int import_bank(const std::vector<uint8_t>& data, int b) {
     std::vector<int> nums; std::vector<FxVals> fxs; auto ps = parse_syx(data, &nums, &fxs); if (ps.empty()) return 0;
     for (int i = 0; i < 100; ++i) { bankfile.erase(b * 100 + i); bankfx.erase(b * 100 + i); }
     std::set<int> u; for (int n : nums) u.insert(n % 100); bool byNum = u.size() == nums.size();
     for (size_t k = 0; k < ps.size() && k < 100; ++k) { auto p = ps[k]; p.resize(173, 0); int n = b * 100 + (byNum ? nums[k] % 100 : (int)k); bankfile[n] = p; bankfx[n] = fxs[k]; }
     save_bank(b); return (int)std::min<size_t>(ps.size(), 100);
 }
-void library_init(NSString* seed_dir) {
+void library_init(const SeedFn& seed) {
     std::lock_guard<std::mutex> l(libm);
     static bool done = false; if (done) return; done = true;
-    NSFileManager* fm = [NSFileManager defaultManager]; bool any = false;
-    for (int b = 0; b < 26; ++b) if ([fm fileExistsAtPath:bank_path(b)]) any = true;
-    if (!any && seed_dir)   // first start: the seed banks shipped with the app / plugin
-        for (int b = 0; b < 26; ++b) { NSString* s = [seed_dir stringByAppendingPathComponent:[NSString stringWithFormat:@"%c.syx", 'A' + b]];
-            if ([fm fileExistsAtPath:s]) [fm copyItemAtPath:s toPath:bank_path(b) error:nil]; }
-    for (int b = 0; b < 26; ++b) if ([fm fileExistsAtPath:bank_path(b)]) {
-        std::vector<int> nums; std::vector<FxVals> fxs; auto ps = parse_syx([NSData dataWithContentsOfFile:bank_path(b)], &nums, &fxs);
+    bool any = false;
+    for (int b = 0; b < 26; ++b) if (file_exists(bank_path(b))) any = true;
+    if (!any && seed)   // first start: the seed banks shipped with the plugin
+        for (int b = 0; b < 26; ++b) { std::vector<uint8_t> d; if (seed(b, d) && !d.empty()) write_file(bank_path(b), d); }
+    for (int b = 0; b < 26; ++b) if (file_exists(bank_path(b))) {
+        std::vector<int> nums; std::vector<FxVals> fxs; auto ps = parse_syx(read_file(bank_path(b)), &nums, &fxs);
         for (size_t k = 0; k < ps.size(); ++k) { auto p = ps[k]; p.resize(173, 0); bankfile[b * 100 + nums[k] % 100] = p; bankfx[b * 100 + nums[k] % 100] = fxs[k]; } }
 }
-static NSString* pick_open(NSArray* types) {
-    NSOpenPanel* o = [NSOpenPanel openPanel]; o.allowedFileTypes = types; o.allowsMultipleSelection = NO;
-    return [o runModal] == NSModalResponseOK ? o.URL.path : nil;
-}
-static NSString* pick_save(NSString* name, NSArray* types) {
-    NSSavePanel* s = [NSSavePanel savePanel]; s.allowedFileTypes = types; s.nameFieldStringValue = name; s.allowsOtherFileTypes = NO;
-    return [s runModal] == NSModalResponseOK ? s.URL.path : nil;
-}
-static NSUserDefaults* prefs() { static NSUserDefaults* u = [[NSUserDefaults alloc] initWithSuiteName:@"com.mtzvfilm.pro8"]; return u; }
+static bool pref(const char* k, double& v) { return platform::pref_get(k, v); }
+static void save_pref(const char* k, double v) { platform::pref_set(k, v); }
 
 // ---------------------------------------------------------------- instance
 Core::Core(bool plug) : plugin(plug), eng(48000), fx(48000) {
     patch.assign(PRO8_BASIC_PATCH, PRO8_BASIC_PATCH + 173); fxcur = fx_default();
     eng.set_calibrated_output(true);
-    NSUserDefaults* u = prefs();   // new instances start from the last settings used
-    if ([u objectForKey:@"vintage"]) st.vint = [u doubleForKey:@"vintage"];
-    if ([u objectForKey:@"spread"]) st.spread = [u doubleForKey:@"spread"];
-    if ([u objectForKey:@"tune"]) st.tune = [u doubleForKey:@"tune"];
-    if ([u objectForKey:@"voices"]) st.voices = (int)[u integerForKey:@"voices"];
-    if ([u objectForKey:@"univoices"]) st.uni = (int)[u integerForKey:@"univoices"];
-    st.polyuni = [u boolForKey:@"polyuni"]; st.mono = [u boolForKey:@"mono"];
-    daw_sync = plugin ? ([u objectForKey:@"hostsync"] ? [u boolForKey:@"hostsync"] : true) : [u boolForKey:@"dawsync"];
+    double v;   // new instances start from the last settings used
+    if (pref("vintage", v)) st.vint = v;
+    if (pref("spread", v)) st.spread = v;
+    if (pref("tune", v)) st.tune = v;
+    if (pref("voices", v)) st.voices = (int)v;
+    if (pref("univoices", v)) st.uni = (int)v;
+    st.polyuni = pref("polyuni", v) && v != 0; st.mono = pref("mono", v) && v != 0;
+    daw_sync = plugin ? (pref("hostsync", v) ? v != 0 : true) : (pref("dawsync", v) && v != 0);
     apply_settings(); apply_engine(); apply_fx();
     std::lock_guard<std::mutex> l(libm); if (bankfile.count(0)) { patch = bankfile[0]; prog = 0; if (bankfx.count(0)) fxcur = bankfx[0]; }
     apply_engine(); apply_fx();
@@ -235,6 +261,12 @@ void Core::render(float* L, float* R, int n) {
     for (int i = 0; i < n; ++i) { L[i] = std::clamp((float)(L[i] * gain), -1.0f, 1.0f); R[i] = std::clamp((float)(R[i] * gain), -1.0f, 1.0f); }
 }
 void Core::note(int n, int v, bool on) { std::lock_guard<std::mutex> l(m); if (on) eng.note_on(n, v); else eng.note_off(n); }
+bool Core::is_panel_cc(int cc) {
+    if (cc == 74 || cc == 75 || cc == 76) return true;
+    for (auto& [k, f] : FIELDS) if (f.cc == cc) return true;
+    for (auto& [k, sc] : STEP_CC) if (sc.first == cc) return true;
+    return false;
+}
 bool Core::panel_cc(int cc, int val) {   // CCs of the PRO-800 MIDI map move the patch like its panel
     bool hit = false;
     for (auto& [k, f] : FIELDS) if (f.cc == cc) { int v = (int)std::lround(val * 65535.0 / 127.0); patch[f.off] = v & 255; patch[f.off + 1] = v >> 8; hit = true; }
@@ -242,7 +274,7 @@ bool Core::panel_cc(int cc, int val) {   // CCs of the PRO-800 MIDI map move the
     if (cc == 74 || cc == 75 || cc == 76) { int bit = cc == 74 ? 1 : cc == 75 ? 2 : 4; uint8_t& t = patch[FIELDS.at("lfo_target").off]; t = val >= 64 ? (t | bit) : (t & ~bit); hit = true; }
     if (!hit) return false;
     apply_engine(true);
-    static uint64_t last = 0; uint64_t now = mach_absolute_time(); if (now - last > 30000000ULL) { last = now; push_patch(); }   // ~30 ms UI refresh
+    static double last = 0; double now = now_s(); if (now - last > 0.03) { last = now; push_patch(); }   // ~30 ms UI refresh
     return true;
 }
 void Core::midi(uint8_t st_, uint8_t d1, uint8_t d2) {
@@ -252,9 +284,8 @@ void Core::midi(uint8_t st_, uint8_t d1, uint8_t d2) {
     std::lock_guard<std::mutex> l(m); eng.midi(s, d1, d2);
 }
 void Core::midi_start() { if (!daw_sync) return; clk_n = 0; clk_last = 0; std::lock_guard<std::mutex> l(m); eng.transport_start(); }
-void Core::midi_clock(uint64_t ts) {   // tempo = mean tick interval over 2 beats; a step (3 ticks > 4 % off) restarts the window
-    static mach_timebase_info_data_t tb; if (!tb.denom) mach_timebase_info(&tb);
-    double t = (double)(ts ? ts : mach_absolute_time()) * tb.numer / tb.denom * 1e-9;
+void Core::midi_clock(double ts) {   // tempo = mean tick interval over 2 beats; a step (3 ticks > 4 % off) restarts the window
+    double t = ts > 0 ? ts : now_s();
     if (clk_n == 0) { clk_wn = 0; clk_wi = 0; clk_jump = 0; }
     if (clk_last > 0) {
         double d = t - clk_last;
@@ -266,7 +297,7 @@ void Core::midi_clock(uint64_t ts) {   // tempo = mean tick interval over 2 beat
             if (clk_wn >= 12 && clk_jump == 0 && daw_sync) {
                 double b = 60.0 / (24.0 * clk_avg);
                 if (std::fabs(b - bpm) > 0.02) { bpm = b; std::lock_guard<std::mutex> l(m); eng.set_tempo(b); fx.set_tempo(b); }
-                if (std::fabs(b - clk_shown) > 0.6) { clk_shown = std::round(b); if (js) js([NSString stringWithFormat:@"setBpm(%.0f, 1)", clk_shown]); }
+                if (std::fabs(b - clk_shown) > 0.6) { clk_shown = std::round(b); if (js) js(fmt("setBpm(%.0f, 1)", clk_shown)); }
             }
         }
     }
@@ -276,7 +307,7 @@ void Core::set_host_tempo(double b, bool started) {   // plugin: called from the
     if (!daw_sync) return;   // SYNC TO DAW off: the panel's own BPM
     std::lock_guard<std::mutex> l(m);
     if (b > 0 && std::fabs(b - bpm) > 0.001) { bpm = b; eng.set_tempo(b); fx.set_tempo(b);
-        if (std::fabs(b - clk_shown) > 0.6 && js) { clk_shown = std::round(b); js([NSString stringWithFormat:@"setBpm(%.0f, 1)", clk_shown]); } }
+        if (std::fabs(b - clk_shown) > 0.6 && js) { clk_shown = std::round(b); js(fmt("setBpm(%.0f, 1)", clk_shown)); } }
     if (started) eng.transport_start();
 }
 void Core::load_prog(int n) {
@@ -288,49 +319,51 @@ void Core::load_prog(int n) {
 }
 void Core::push_patch() {
     if (!js) return;
-    NSMutableString* s = [NSMutableString stringWithString:@"setPatch({"];
-    for (auto& [k, f] : FIELDS) [s appendFormat:@"%s:%d,", k.c_str(), f.cont ? (patch[f.off] | (patch[f.off + 1] << 8)) : patch[f.off]];
-    [s appendFormat:@"}, %@, %d)", js_str(patch_name(patch)), prog]; js(s);
+    std::string s = "setPatch({";
+    for (auto& [k, f] : FIELDS) s += fmt("%s:%d,", k.c_str(), f.cont ? (patch[f.off] | (patch[f.off + 1] << 8)) : patch[f.off]);
+    s += "}, " + js_str(patch_name(patch)) + fmt(", %d)", prog); js(s);
 }
 void Core::push_fx() {
     if (!js) return;
-    NSMutableString* q = [NSMutableString stringWithString:@"setFx({"];
-    for (int k = 0; k < p800fx::FX_N; ++k) [q appendFormat:@"%s:%d,", p800fx::FX_KEYS[k], fxcur[k]];
-    [q appendString:@"})"]; js(q);
+    std::string q = "setFx({";
+    for (int k = 0; k < p800fx::FX_N; ++k) q += fmt("%s:%d,", p800fx::FX_KEYS[k], fxcur[k]);
+    q += "})"; js(q);
 }
 void Core::push_settings() {
     if (!js) return;
-    js([NSString stringWithFormat:@"setSettings({vint:%d, spread:%d, poly:%d, uni:%d, polyuni:%d, tune:%d, mono:%d, dawsync:%d})",
-        (int)lround(100 * st.vint), (int)lround(100 * st.spread), st.voices, st.uni, (int)st.polyuni, (int)lround(10 * st.tune), (int)st.mono, (int)daw_sync]);
-    js([NSString stringWithFormat:@"setArp({mode:%d, oct:%d, div:%d, lfos:%d, lfod:%d, bpm:%d})", arp.mode, arp.oct, arp.div, arp.lfos, arp.lfod, (int)lround(ui_bpm)]);
-    if (daw_sync) js(plugin ? [NSString stringWithFormat:@"setBpm(%.0f, 1)", bpm] : @"setBpm(null, 1)"); else js([NSString stringWithFormat:@"setBpm(%.0f, 0)", ui_bpm]);
+    js(fmt("setSettings({vint:%d, spread:%d, poly:%d, uni:%d, polyuni:%d, tune:%d, mono:%d, dawsync:%d})",
+        (int)std::lround(100 * st.vint), (int)std::lround(100 * st.spread), st.voices, st.uni, (int)st.polyuni, (int)std::lround(10 * st.tune), (int)st.mono, (int)daw_sync));
+    js(fmt("setArp({mode:%d, oct:%d, div:%d, lfos:%d, lfod:%d, bpm:%d})", arp.mode, arp.oct, arp.div, arp.lfos, arp.lfod, (int)std::lround(ui_bpm)));
+    if (daw_sync) js(plugin ? fmt("setBpm(%.0f, 1)", bpm) : std::string("setBpm(null, 1)")); else js(fmt("setBpm(%.0f, 0)", ui_bpm));
+    // output volume slider (inverse of the __vol law in handle(); 43690 = 0 dB)
+    int vol = (int)std::lround(std::clamp((20.0 * std::log10(std::max(gain, 1e-6)) + 24.0) / 36.0, 0.0, 1.0) * 65535.0);
+    js(fmt("set('__vol', %d, true)", vol));
 }
 void Core::send_list() {
     if (!js) return;
-    NSMutableString* s = [NSMutableString stringWithString:@"setPresets(["];
-    { std::lock_guard<std::mutex> l(libm); for (auto& [n, d] : bankfile) [s appendFormat:@"[%d,%@],", n, js_str(patch_name(d))]; }
-    [s appendString:@"])"]; js(s);
+    std::string s = "setPresets([";
+    { std::lock_guard<std::mutex> l(libm); for (auto& [n, d] : bankfile) s += fmt("[%d,", n) + js_str(patch_name(d)) + "],"; }
+    s += "])"; js(s);
 }
 void Core::ui_ready() {
-    if (plugin && js) js(@"setHost('plugin')");
+    if (plugin && js) js("setHost('plugin')");
     send_list(); push_settings(); push_patch(); push_fx();
 }
-static void save_pref(id v, NSString* k) { [prefs() setObject:v forKey:k]; }
-void Core::handle(NSDictionary* msg) {
-    NSString* t = msg[@"t"];
-    if ([t isEqualToString:@"param"]) {
-        std::string k = [msg[@"k"] UTF8String]; int v = [msg[@"v"] intValue];
+void Core::handle(const Json& msg) {
+    const std::string& t = msg["t"].str();
+    if (t == "param") {
+        const std::string& k = msg["k"].str(); int v = msg["v"].i();
         if (k == "__vol") { gain = std::pow(10.0, (v / 65535.0 * 36.0 - 24.0) / 20.0); return; }   // 43690 = 0 dB
-        if (k == "__mono") { st.mono = v != 0; save_pref(@(st.mono), @"mono"); apply_settings(); return; }
-        if (k == "__polyuni") { st.polyuni = v != 0; save_pref(@(st.polyuni), @"polyuni"); apply_settings(); return; }
+        if (k == "__mono") { st.mono = v != 0; save_pref("mono", st.mono); apply_settings(); return; }
+        if (k == "__polyuni") { st.polyuni = v != 0; save_pref("polyuni", st.polyuni); apply_settings(); return; }
         auto it = FIELDS.find(k); if (it == FIELDS.end()) return; const Field& f = it->second;
         if (f.cont) { patch[f.off] = v & 255; patch[f.off + 1] = v >> 8; } else patch[f.off] = (uint8_t)v;
         if (k == "unison" && v) { bool allff = true; for (int i = 87; i < 94; ++i) allff &= patch[i] == 0xFF; if (allff) for (int i = 87; i < 94; ++i) patch[i] = 0; }
         apply_engine(true);
-    } else if ([t isEqualToString:@"note"]) {
-        note([msg[@"n"] intValue], [msg[@"v"] intValue], [msg[@"on"] intValue]);
-    } else if ([t isEqualToString:@"prog"]) {   // arrows: filled slots only; +-100 = next / previous bank with presets
-        int target = prog, dd = [msg[@"d"] intValue];
+    } else if (t == "note") {
+        note(msg["n"].i(), msg["v"].i(), msg["on"].i() != 0);
+    } else if (t == "prog") {   // arrows: filled slots only; +-100 = next / previous bank with presets
+        int target = prog, dd = msg["d"].i();
         { std::lock_guard<std::mutex> l(libm);
           if (!bankfile.empty()) {
             if (std::abs(dd) >= 100) {
@@ -339,94 +372,98 @@ void Core::handle(NSDictionary* msg) {
             } else { auto it = bankfile.find(target); if (it == bankfile.end()) it = bankfile.lower_bound(target); if (it == bankfile.end()) it = bankfile.begin();
                 else if (dd > 0) { ++it; if (it == bankfile.end()) it = bankfile.begin(); } else { if (it == bankfile.begin()) it = bankfile.end(); --it; }
                 target = it->first; } } }
-        if (js) js([NSString stringWithFormat:@"setProg(%d)", target]); load_prog(target);
-    } else if ([t isEqualToString:@"progset"]) {
-        int n = [msg[@"n"] intValue]; if (js) js([NSString stringWithFormat:@"setProg(%d)", n]); load_prog(n);
-    } else if ([t isEqualToString:@"presets"]) {
+        if (js) js(fmt("setProg(%d)", target)); load_prog(target);
+    } else if (t == "progset") {
+        int n = msg["n"].i(); if (js) js(fmt("setProg(%d)", n)); load_prog(n);
+    } else if (t == "presets") {
         send_list();
-    } else if ([t isEqualToString:@"init"] || [t isEqualToString:@"new"]) {
-        patch.assign(PRO8_BASIC_PATCH, PRO8_BASIC_PATCH + 173); if ([t isEqualToString:@"new"]) { set_name(patch, @"INIT"); fxcur = fx_default(); apply_fx(); push_fx(); }
+    } else if (t == "init" || t == "new") {
+        patch.assign(PRO8_BASIC_PATCH, PRO8_BASIC_PATCH + 173); if (t == "new") { set_name(patch, "INIT"); fxcur = fx_default(); apply_fx(); push_fx(); }
         apply_engine(); push_patch();
-    } else if ([t isEqualToString:@"save"]) {
-        int n = [msg[@"n"] intValue]; if (n < 0 || n >= 2600) return;
-        set_name(patch, msg[@"name"] ?: @""); prog = n;
+    } else if (t == "save") {
+        int n = msg["n"].i(); if (n < 0 || n >= 2600) return;
+        set_name(patch, msg["name"].str()); prog = n;
         { std::lock_guard<std::mutex> l(libm); bankfile[n] = patch; bankfx[n] = fxcur; save_bank(n / 100); }
         send_list(); push_patch();
-    } else if ([t isEqualToString:@"delete"]) {
-        int n = [msg[@"n"] intValue]; { std::lock_guard<std::mutex> l(libm); bankfile.erase(n); bankfx.erase(n); save_bank(n / 100); } send_list();
-    } else if ([t isEqualToString:@"pimport"]) {   // .syx (first patch + its FX block) or .fxp into the edit buffer
-        NSString* f = pick_open(@[@"syx", @"fxp"]); if (!f) return; NSData* d = [NSData dataWithContentsOfFile:f];
-        if ([[f.pathExtension lowercaseString] isEqualToString:@"fxp"]) {
-            auto r = read_fx_file(d); if (r.empty()) { if (js) js(@"toast('NOT A PRO8 PRESET')"); return; }
+    } else if (t == "delete") {
+        int n = msg["n"].i(); { std::lock_guard<std::mutex> l(libm); bankfile.erase(n); bankfx.erase(n); save_bank(n / 100); } send_list();
+    } else if (t == "pimport") {   // .syx (first patch + its FX block) or .fxp into the edit buffer
+        std::string f = platform::pick_open({"syx", "fxp"}); if (f.empty()) return; auto d = read_file(f);
+        if (lower_ext(f) == "fxp") {
+            auto r = read_fx_file(d); if (r.empty()) { if (js) js("toast('NOT A PRO8 PRESET')"); return; }
             patch = normalize_patch(std::get<1>(r[0])); fxcur = std::get<2>(r[0]);
         } else {
-            std::vector<FxVals> fxs; auto ps = parse_syx(d, nullptr, &fxs); if (ps.empty()) { if (js) js(@"toast('NO PATCH IN FILE')"); return; }
+            std::vector<FxVals> fxs; auto ps = parse_syx(d, nullptr, &fxs); if (ps.empty()) { if (js) js("toast('NO PATCH IN FILE')"); return; }
             patch = ps[0]; fxcur = fxs[0];
         }
         patch.resize(173, 0); apply_engine(); apply_fx(); push_patch(); push_fx();
-    } else if ([t isEqualToString:@"pexport"]) {
+    } else if (t == "pexport") {
         std::string nm = patch_name(patch);
-        NSString* f = pick_save([NSString stringWithFormat:@"%s.syx", nm.empty() ? "patch" : nm.c_str()], @[@"syx", @"fxp"]); if (!f) return;
-        if ([[f.pathExtension lowercaseString] isEqualToString:@"fxp"]) { [make_fxp(patch, fxcur) writeToFile:f atomically:YES]; return; }
+        std::string f = platform::pick_save((nm.empty() ? std::string("patch") : nm) + ".syx", {"syx", "fxp"}); if (f.empty()) return;
+        if (lower_ext(f) == "fxp") { write_file(f, make_fxp(patch, fxcur)); return; }
         int n = prog >= 0 && prog < 400 ? prog : 0; auto out = patch_msg(n, patch); auto fm = fx_msg(n, fxcur); out.insert(out.end(), fm.begin(), fm.end());
-        [[NSData dataWithBytes:out.data() length:out.size()] writeToFile:f atomically:YES];
-    } else if ([t isEqualToString:@"bankimport"]) {
-        int b = [msg[@"b"] intValue]; NSString* f = pick_open(@[@"syx", @"fxb"]); if (!f) return; NSData* d = [NSData dataWithContentsOfFile:f]; int k = 0;
+        write_file(f, out);
+    } else if (t == "bankimport") {
+        int b = msg["b"].i(); if (b < 0 || b >= 26) return;
+        std::string f = platform::pick_open({"syx", "fxb"}); if (f.empty()) return; auto d = read_file(f); int k = 0;
         { std::lock_guard<std::mutex> l(libm);
-          if ([[f.pathExtension lowercaseString] isEqualToString:@"fxb"]) {
+          if (lower_ext(f) == "fxb") {
             auto r = read_fx_file(d);
             if (!r.empty()) { for (int i = 0; i < 100; ++i) { bankfile.erase(b * 100 + i); bankfx.erase(b * 100 + i); }
                 for (auto& [slot, p, fv] : r) { int n = b * 100 + (slot < 0 ? k : slot % 100); auto q = normalize_patch(p); q.resize(173, 0); bankfile[n] = q; bankfx[n] = fv; ++k; }
                 save_bank(b); }
           } else k = import_bank(d, b); }
-        send_list(); if (js) js([NSString stringWithFormat:@"toast('BANK %c: %d PATCHES')", 'A' + b, k]);
-    } else if ([t isEqualToString:@"bankexport"]) {
-        int b = [msg[@"b"] intValue]; NSString* f = pick_save([NSString stringWithFormat:@"PRO8 bank %c.syx", 'A' + b], @[@"syx", @"fxb"]); if (!f) return;
+        send_list(); if (js) js(fmt("toast('BANK %c: %d PATCHES')", 'A' + b, k));
+    } else if (t == "bankexport") {
+        int b = msg["b"].i(); if (b < 0 || b >= 26) return;
+        std::string f = platform::pick_save(fmt("PRO8 bank %c.syx", 'A' + b), {"syx", "fxb"}); if (f.empty()) return;
         std::lock_guard<std::mutex> l(libm);
-        if ([[f.pathExtension lowercaseString] isEqualToString:@"fxb"]) [make_fxb(b) writeToFile:f atomically:YES];
-        else [bank_data(b, b < 4 ? b * 100 : 0) writeToFile:f atomically:YES];   // banks A-D keep the unit's numbers (the file loads on the unit)
-    } else if ([t isEqualToString:@"fx"]) {
-        int k = [msg[@"k"] intValue], v = [msg[@"v"] intValue]; if (k < 0 || k >= p800fx::FX_N) return;
+        if (lower_ext(f) == "fxb") write_file(f, make_fxb(b));
+        else write_file(f, bank_data(b, b < 4 ? b * 100 : 0));   // banks A-D keep the unit's numbers (the file loads on the unit)
+    } else if (t == "fx") {
+        int k = msg["k"].i(), v = msg["v"].i(); if (k < 0 || k >= p800fx::FX_N) return;
         fxcur[k] = (uint16_t)std::clamp(v, 0, 65535); std::lock_guard<std::mutex> l(m); fx.set(k, fxcur[k]);
-    } else if ([t isEqualToString:@"tempo"]) {
-        ui_bpm = [msg[@"v"] doubleValue]; if (daw_sync) return;
+    } else if (t == "tempo") {
+        ui_bpm = msg["v"].num(); if (daw_sync) return;
         bpm = ui_bpm; std::lock_guard<std::mutex> l(m); eng.set_tempo(bpm); fx.set_tempo(bpm);
-    } else if ([t isEqualToString:@"dawsync"]) {
-        daw_sync = [msg[@"on"] intValue] != 0; clk_n = 0; clk_shown = -1; save_pref(@(daw_sync), plugin ? @"hostsync" : @"dawsync");
-        if (!daw_sync) { bpm = ui_bpm; { std::lock_guard<std::mutex> l(m); eng.set_tempo(bpm); fx.set_tempo(bpm); } if (js) js([NSString stringWithFormat:@"setBpm(%.0f, 0)", ui_bpm]); }
-        else if (js) js(@"setBpm(null, 1)");
-    } else if ([t isEqualToString:@"arp"]) {
-        arp.mode = [msg[@"mode"] intValue]; arp.oct = [msg[@"oct"] intValue]; arp.div = [msg[@"div"] intValue];
+    } else if (t == "dawsync") {
+        daw_sync = msg["on"].i() != 0; clk_n = 0; clk_shown = -1; save_pref(plugin ? "hostsync" : "dawsync", daw_sync);
+        if (!daw_sync) { bpm = ui_bpm; { std::lock_guard<std::mutex> l(m); eng.set_tempo(bpm); fx.set_tempo(bpm); } if (js) js(fmt("setBpm(%.0f, 0)", ui_bpm)); }
+        else if (js) js("setBpm(null, 1)");
+    } else if (t == "arp") {
+        arp.mode = msg["mode"].i(); arp.oct = msg["oct"].i(); arp.div = msg["div"].i();
         std::lock_guard<std::mutex> l(m); eng.set_arp(arp.mode, arp.oct, arp.div);
-    } else if ([t isEqualToString:@"lfosync"]) {
-        arp.lfos = [msg[@"on"] intValue]; arp.lfod = [msg[@"div"] intValue]; std::lock_guard<std::mutex> l(m); eng.set_lfo_sync(arp.lfos != 0, arp.lfod);
-    } else if ([t isEqualToString:@"spread"]) { st.spread = [msg[@"v"] doubleValue]; save_pref(@(st.spread), @"spread"); apply_settings();
-    } else if ([t isEqualToString:@"vintage"]) { st.vint = [msg[@"v"] doubleValue]; save_pref(@(st.vint), @"vintage"); apply_settings();
-    } else if ([t isEqualToString:@"tune"]) { st.tune = [msg[@"hz"] doubleValue]; save_pref(@(st.tune), @"tune"); apply_settings();
-    } else if ([t isEqualToString:@"voices"]) { st.voices = [msg[@"n"] intValue]; save_pref(@(st.voices), @"voices"); apply_settings();
-    } else if ([t isEqualToString:@"univoices"]) { st.uni = [msg[@"n"] intValue]; save_pref(@(st.uni), @"univoices"); apply_settings();
-    } else if ([t isEqualToString:@"panic"]) { std::lock_guard<std::mutex> l(m); eng.all_notes_off();
-    } else if ([t isEqualToString:@"ready"]) { ui_ready(); }
+    } else if (t == "lfosync") {
+        arp.lfos = msg["on"].i(); arp.lfod = msg["div"].i(); std::lock_guard<std::mutex> l(m); eng.set_lfo_sync(arp.lfos != 0, arp.lfod);
+    } else if (t == "spread") { st.spread = msg["v"].num(); save_pref("spread", st.spread); apply_settings();
+    } else if (t == "vintage") { st.vint = msg["v"].num(); save_pref("vintage", st.vint); apply_settings();
+    } else if (t == "tune") { st.tune = msg["hz"].num(); save_pref("tune", st.tune); apply_settings();
+    } else if (t == "voices") { st.voices = msg["n"].i(); save_pref("voices", st.voices); apply_settings();
+    } else if (t == "univoices") { st.uni = msg["n"].i(); save_pref("univoices", st.uni); apply_settings();
+    } else if (t == "panic") { std::lock_guard<std::mutex> l(m); eng.all_notes_off();
+    } else if (t == "ready") { ui_ready(); }
 }
-// ---------------------------------------------------------------- plugin state (JSON)
-NSData* Core::get_state() {
-    NSMutableArray* f = [NSMutableArray array]; for (auto x : fxcur) [f addObject:@(x)];
-    NSDictionary* d = @{@"v": @1, @"prog": @(prog), @"patch": [[NSData dataWithBytes:patch.data() length:patch.size()] base64EncodedStringWithOptions:0], @"fx": f,
-        @"vint": @(st.vint), @"spread": @(st.spread), @"tune": @(st.tune), @"voices": @(st.voices), @"uni": @(st.uni), @"polyuni": @(st.polyuni), @"mono": @(st.mono),
-        @"arp": @[@(arp.mode), @(arp.oct), @(arp.div), @(arp.lfos), @(arp.lfod)], @"gain": @(gain), @"sync": @(daw_sync), @"bpm": @(ui_bpm)};
-    return [NSJSONSerialization dataWithJSONObject:d options:0 error:nil];
+// ---------------------------------------------------------------- plugin state (JSON, same format as 1.0.x)
+std::string Core::get_state() {
+    std::string f; for (size_t k = 0; k < fxcur.size(); ++k) f += (k ? "," : "") + std::to_string(fxcur[k]);
+    auto B = [](bool b) { return std::string(b ? "true" : "false"); };
+    return "{\"v\":1,\"prog\":" + std::to_string(prog) + ",\"patch\":" + json_quote(base64_encode(patch)) + ",\"fx\":[" + f + "]"
+        + ",\"vint\":" + json_num(st.vint) + ",\"spread\":" + json_num(st.spread) + ",\"tune\":" + json_num(st.tune)
+        + ",\"voices\":" + std::to_string(st.voices) + ",\"uni\":" + std::to_string(st.uni) + ",\"polyuni\":" + B(st.polyuni) + ",\"mono\":" + B(st.mono)
+        + fmt(",\"arp\":[%d,%d,%d,%d,%d]", arp.mode, arp.oct, arp.div, arp.lfos, arp.lfod)
+        + ",\"gain\":" + json_num(gain) + ",\"sync\":" + B(daw_sync) + ",\"bpm\":" + json_num(ui_bpm) + "}";
 }
-bool Core::set_state(NSData* data) {
-    NSDictionary* d = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil; if (![d isKindOfClass:[NSDictionary class]]) return false;
-    NSData* p = [[NSData alloc] initWithBase64EncodedString:d[@"patch"] ?: @"" options:0]; if (p.length < 150) return false;
-    patch.assign((const uint8_t*)p.bytes, (const uint8_t*)p.bytes + p.length); patch = normalize_patch(patch); patch.resize(173, 0);
-    prog = [d[@"prog"] intValue]; NSArray* f = d[@"fx"]; for (int k = 0; k < p800fx::FX_N && k < (int)f.count; ++k) fxcur[k] = [f[k] intValue];
-    st.vint = [d[@"vint"] doubleValue]; st.spread = [d[@"spread"] doubleValue]; st.tune = [d[@"tune"] doubleValue] ?: 440;
-    st.voices = [d[@"voices"] intValue] ?: 8; st.uni = [d[@"uni"] intValue] ?: 8; st.polyuni = [d[@"polyuni"] boolValue]; st.mono = [d[@"mono"] boolValue];
-    NSArray* a = d[@"arp"]; if (a.count == 5) { arp.mode = [a[0] intValue]; arp.oct = [a[1] intValue]; arp.div = [a[2] intValue]; arp.lfos = [a[3] intValue]; arp.lfod = [a[4] intValue]; }
-    if (d[@"gain"]) gain = [d[@"gain"] doubleValue];
-    if (d[@"sync"]) daw_sync = [d[@"sync"] boolValue];
-    if (d[@"bpm"]) { ui_bpm = [d[@"bpm"] doubleValue]; if (!daw_sync) bpm = ui_bpm; }
+bool Core::set_state(const std::string& data) {
+    Json d = Json::parse(data); if (d.type != Json::Obj) return false;
+    auto p = base64_decode(d["patch"].str()); if (p.size() < 150) return false;
+    patch = normalize_patch(p); patch.resize(173, 0);
+    prog = d["prog"].i(); const Json& f = d["fx"]; for (int k = 0; k < p800fx::FX_N && k < (int)f.a.size(); ++k) fxcur[k] = (uint16_t)f.a[k].i();
+    st.vint = d["vint"].num(); st.spread = d["spread"].num(); st.tune = d["tune"].num() != 0 ? d["tune"].num() : 440;
+    st.voices = d["voices"].i() ? d["voices"].i() : 8; st.uni = d["uni"].i() ? d["uni"].i() : 8; st.polyuni = d["polyuni"].truthy(); st.mono = d["mono"].truthy();
+    const Json& a = d["arp"]; if (a.a.size() == 5) { arp.mode = a.a[0].i(); arp.oct = a.a[1].i(); arp.div = a.a[2].i(); arp.lfos = a.a[3].i(); arp.lfod = a.a[4].i(); }
+    if (d.has("gain")) gain = d["gain"].num();
+    if (d.has("sync")) daw_sync = d["sync"].truthy();
+    if (d.has("bpm")) { ui_bpm = d["bpm"].num(); if (!daw_sync) bpm = ui_bpm; }
     apply_engine(); apply_fx(); apply_settings(); ui_ready(); return true;
 }
 
