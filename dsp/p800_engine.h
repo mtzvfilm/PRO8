@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 mtzvfilm. PRO8 - https://github.com/mtzvfilm/PRO8
 // PRO-800 behavioural DSP engine (portable C++17, no dependencies). Model spec: docs/MODEL.md
 #pragma once
 #include <cstdint>

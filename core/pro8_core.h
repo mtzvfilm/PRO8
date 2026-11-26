@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 mtzvfilm. PRO8 - https://github.com/mtzvfilm/PRO8
 // PRO8 core: one synth instance (voice engine + effects + edit buffer + settings) and the shared preset library.
 // Used by the plugin (plugin/src/pro8_clap.mm); the panel (core/ui.html) talks to
 // it through handle() (messages from the web view) and the js callback (calls into the web view).

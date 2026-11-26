@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 mtzvfilm. PRO8 - https://github.com/mtzvfilm/PRO8
 // PRO-800 patch: decoded SysEx data (format 0x6F, firmware 1.4.6). Offsets: inputs/repos/samstaton_pro800/pro800syx.md
 #pragma once
 #include <cstdint>

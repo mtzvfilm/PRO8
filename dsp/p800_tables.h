@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 mtzvfilm. PRO8 - https://github.com/mtzvfilm/PRO8
 // PRO-800 measured laws (docs/RESULTS.md). All knob values are 0..65535 as in the patch (SysEx) data.
 #pragma once
 #include <cmath>

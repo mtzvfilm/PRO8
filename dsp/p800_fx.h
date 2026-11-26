@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 mtzvfilm. PRO8 - https://github.com/mtzvfilm/PRO8
 // PRO8 effects: BBD chorus (I / II / I+II, rate, depth, mix), delay (tape / BBD / digital ping-pong, free or tempo-synced),
 // reverb (plate / hall / cloud with shimmer). Runs after the voice engine (mono in, stereo out); the engine itself is untouched.
 // Parameters are stored with each preset as 20 values 0..65535 (FX_KEYS order), see app/p800app.mm (SysEx block 0x7D, .fxp).

@@ -10,7 +10,7 @@ matched in the code — not designed by ear, not approximated from a manual.
 
 DSP by **mtzvfilm** · ig: [mtzv_film](https://instagram.com/mtzv_film)
 
-### ⬇ [Download PRO8 1.0 for macOS](https://github.com/mtzvfilm/PRO8/releases/latest) — CLAP + VST3 + AU in one installer
+### ⬇ [Download PRO8 1.0.1 for macOS](https://github.com/mtzvfilm/PRO8/releases/latest) — CLAP + VST3 + AU in one installer
 
 ## Sound demos
 
@@ -65,11 +65,11 @@ sings — not a generic "analog-style" synth.
 - Preset library: 26 banks × 100 presets, bank and preset import/export as **.syx** (PRO-800 compatible — files load
   on the hardware) and **.fxp / .fxb**
 - MIDI CCs follow the PRO-800 MIDI map
-- Factory content: the PRO-800 factory bank and a 100-patch PRO8 bank (pads, ambient, drones, leads, arpeggios)
+- Factory content: a 100-patch PRO8 bank (pads, ambient, drones, leads, arpeggios); your own PRO-800 banks load as .syx
 
 ## Installing
 
-Download `PRO8-1.0.0.pkg` from [Releases](https://github.com/mtzvfilm/PRO8/releases/latest). The installer is not signed
+Download `PRO8-1.0.1.pkg` from [Releases](https://github.com/mtzvfilm/PRO8/releases/latest). The installer is not signed
 with an Apple developer certificate: right-click it → **Open** (or System Settings → Privacy & Security → **Open Anyway**).
 The plugins are installed to `/Library/Audio/Plug-Ins`; presets live in `~/Library/Application Support/PRO8/Banks`.
 
@@ -82,7 +82,7 @@ CLAP, VST3 and AU, through [clap-wrapper](https://github.com/free-audio/clap-wra
     git clone --depth 1 https://github.com/free-audio/clap-wrapper.git plugin/third_party/clap-wrapper
     cmake -S plugin -B plugin/build -G Ninja -DCMAKE_BUILD_TYPE=Release
     cmake --build plugin/build          # installs to ~/Library/Audio/Plug-Ins
-    sh plugin/make_pkg.sh               # plugin/build/PRO8-1.0.0.pkg (CLAP + VST3 + AU)
+    sh plugin/make_pkg.sh               # plugin/build/PRO8-1.0.1.pkg (CLAP + VST3 + AU)
 
 ## Layout
 
@@ -98,9 +98,12 @@ CLAP, VST3 and AU, through [clap-wrapper](https://github.com/free-audio/clap-wra
 
 PRO8 is free software, released under the **GNU General Public License v3.0** — see [LICENSE](LICENSE).
 Copyright © 2026 mtzvfilm. Third-party components keep their own licenses: CLAP and clap-wrapper (MIT), VST3 SDK (MIT),
-AudioUnitSDK (Apache 2.0), DSEG font (SIL OFL 1.1, `core/fonts/DSEG-LICENSE.txt`).
+AudioUnitSDK (Apache 2.0), DSEG font (SIL OFL 1.1, `core/fonts/DSEG-LICENSE.txt`) — full texts in
+[`plugin/resources/THIRD_PARTY_LICENSES.txt`](plugin/resources/THIRD_PARTY_LICENSES.txt), also shipped inside every plugin bundle.
 
 ## Disclaimer
 
-PRO8 is an independent project. Behringer and PRO-800 are trademarks of their respective owners; they are named only to
-describe the instrument that was measured.
+PRO8 is an independent project, not affiliated with or endorsed by Behringer / Music Tribe or Sequential. Behringer, PRO-800,
+Sequential and Prophet-600 are trademarks of their respective owners; they are named only to describe the instrument that
+was measured. No factory presets or firmware of the hardware are distributed with PRO8. VST is a registered trademark of
+Steinberg Media Technologies GmbH; Audio Units is a trademark of Apple Inc.

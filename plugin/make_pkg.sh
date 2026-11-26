@@ -4,7 +4,7 @@
 # Security > Open Anyway). Files installed by the installer carry no quarantine flag, so the plugins load in the DAW.
 set -e
 cd "$(dirname "$0")"
-V=1.0.0; OUT=build/out; W=build/pkg; rm -rf $W; mkdir -p $W
+V=1.0.1; OUT=build/out; W=build/pkg; rm -rf $W; mkdir -p $W
 for f in clap:CLAP:PRO8.clap vst3:VST3:PRO8.vst3 au:Components:PRO8.component; do
     id=${f%%:*}; rest=${f#*:}; dir=${rest%%:*}; b=${rest#*:}
     mkdir -p $W/root_$id/Library/Audio/Plug-Ins/$dir
@@ -14,6 +14,7 @@ for f in clap:CLAP:PRO8.clap vst3:VST3:PRO8.vst3 au:Components:PRO8.component; d
     pkgbuild --root $W/root_$id --component-plist $W/comp_$id.plist --identifier com.mtzvfilm.pro8.$id --version $V \
              --install-location / $W/pro8_$id.pkg >/dev/null
 done
+mkdir -p $W/res; { cat ../LICENSE; printf "\n\n"; cat resources/THIRD_PARTY_LICENSES.txt; } > $W/res/license.txt
 cat > $W/dist.xml <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
@@ -21,7 +22,9 @@ cat > $W/dist.xml <<XML
     <welcome mime-type="text/plain"><![CDATA[PRO8 - 8-voice analog polysynth (CLAP, VST3, AU).
 DSP by mtzvfilm - ig: mtzv_film
 
-The plugins are installed to /Library/Audio/Plug-Ins.]]></welcome>
+The plugins are installed to /Library/Audio/Plug-Ins.
+PRO8 is free software under the GNU GPL v3.0: https://github.com/mtzvfilm/PRO8]]></welcome>
+    <license file="license.txt" mime-type="text/plain"/>
     <options customize="allow" require-scripts="false" hostArchitectures="arm64,x86_64"/>
     <domains enable_localSystem="true"/>
     <choices-outline>
@@ -35,5 +38,5 @@ The plugins are installed to /Library/Audio/Plug-Ins.]]></welcome>
     <pkg-ref id="com.mtzvfilm.pro8.au" version="$V">pro8_au.pkg</pkg-ref>
 </installer-gui-script>
 XML
-productbuild --distribution $W/dist.xml --package-path $W build/PRO8-$V.pkg
+productbuild --distribution $W/dist.xml --resources $W/res --package-path $W build/PRO8-$V.pkg
 echo "built plugin/build/PRO8-$V.pkg"

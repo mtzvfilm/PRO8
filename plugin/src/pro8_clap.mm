@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 mtzvfilm. PRO8 - https://github.com/mtzvfilm/PRO8
 // PRO8 as a CLAP plugin (VST3 / AU through clap-wrapper): instrument, stereo out, notes (CLAP + MIDI), host tempo,
 // state (patch, FX, settings), GUI = the same panel (ui.html in the bundle's Resources) in a WKWebView.
 #import <Cocoa/Cocoa.h>
@@ -42,7 +44,7 @@ static Pro8Plugin* P(const clap_plugin_t* p) { return (Pro8Plugin*)p->plugin_dat
 // ---------------------------------------------------------------- descriptor
 static const char* FEATURES[] = {CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_SYNTHESIZER, CLAP_PLUGIN_FEATURE_STEREO, nullptr};
 static const clap_plugin_descriptor_t DESC = {CLAP_VERSION, "com.mtzvfilm.pro8", "PRO8", "mtzvfilm", "https://instagram.com/mtzv_film", "", "",
-                                              "1.0.0", "8-voice analog polysynth", FEATURES};
+                                              "1.0.1", "8-voice analog polysynth", FEATURES};
 
 // ---------------------------------------------------------------- audio / note ports
 static uint32_t ap_count(const clap_plugin_t*, bool is_input) { return is_input ? 0 : 1; }
