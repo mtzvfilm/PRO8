@@ -20,7 +20,10 @@
 #endif
 
 namespace fs = std::filesystem;
-static std::string g_resources;   // macOS: <bundle>/Contents/Resources
+// macOS: <bundle>/Contents/Resources. A function-local static: the AU wrapper calls clap_entry.init() (pro8_entry_init)
+// from a global constructor, possibly before this file's globals are constructed (a global std::string would then be
+// reset to "" after init had set it, and the panel loaded nothing: black window)
+static std::string& resources_dir() { static std::string s; return s; }
 
 struct Pro8Plugin {
     clap_plugin_t plugin;
@@ -38,7 +41,7 @@ static Pro8Plugin* P(const clap_plugin_t* p) { return (Pro8Plugin*)p->plugin_dat
 // ---------------------------------------------------------------- descriptor
 static const char* FEATURES[] = {CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_SYNTHESIZER, CLAP_PLUGIN_FEATURE_STEREO, nullptr};
 static const clap_plugin_descriptor_t DESC = {CLAP_VERSION, "com.mtzvfilm.pro8", "PRO8", "mtzvfilm", "https://instagram.com/mtzv_film", "", "",
-                                              "1.0.2", "8-voice analog polysynth", FEATURES};
+                                              "1.0.3", "8-voice analog polysynth", FEATURES};
 
 // ---------------------------------------------------------------- audio / note ports
 static uint32_t ap_count(const clap_plugin_t*, bool is_input) { return is_input ? 0 : 1; }
@@ -75,7 +78,7 @@ static bool gui_preferred(const clap_plugin_t*, const char** api, bool* floating
 static bool gui_create(const clap_plugin_t* p, const char* api, bool floating) {
     if (floating || strcmp(api, pro8gui::window_api())) return false;
     Pro8Plugin* pl = P(p); if (pl->view) return true;
-    pl->view = pro8gui::create(pl->core, g_resources, pl->w, pl->h); return pl->view != nullptr;
+    pl->view = pro8gui::create(pl->core, resources_dir(), pl->w, pl->h); return pl->view != nullptr;
 }
 static void gui_destroy(const clap_plugin_t* p) { Pro8Plugin* pl = P(p); pro8gui::destroy(pl->view); pl->view = nullptr; }
 static bool gui_set_scale(const clap_plugin_t*, double) { return false; }
@@ -172,9 +175,9 @@ bool pro8_entry_init(const char* plugin_path) {
     fs::path b = fs::u8path(plugin_path ? plugin_path : "");
     while (!b.empty() && b.has_parent_path() && b != b.parent_path()) {
         auto e = b.extension().u8string(); if (e == ".clap" || e == ".vst3" || e == ".component") break; b = b.parent_path(); }
-    g_resources = (b / "Contents" / "Resources").u8string();
+    resources_dir() = (b / "Contents" / "Resources").u8string();
     pro8::library_init([](int bank, std::vector<uint8_t>& d) {
-        std::ifstream f(fs::u8path(g_resources) / "banks" / (std::string(1, (char)('A' + bank)) + ".syx"), std::ios::binary); if (!f) return false;
+        std::ifstream f(fs::u8path(resources_dir()) / "banks" / (std::string(1, (char)('A' + bank)) + ".syx"), std::ios::binary); if (!f) return false;
         d.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()); return true; });
 #else
     (void)plugin_path;   // Windows: ui.html and the seed banks are compiled in (pro8_embedded.h)

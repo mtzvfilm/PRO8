@@ -10,7 +10,7 @@ matched in the code — not designed by ear, not approximated from a manual.
 
 DSP by **mtzvfilm** · ig: [mtzv_film](https://instagram.com/mtzv_film)
 
-### ⬇ [Download PRO8 1.0.2](https://github.com/mtzvfilm/PRO8/releases/latest) — macOS: CLAP + VST3 + AU in one installer · Windows: VST3 + CLAP
+### ⬇ [Download PRO8 1.0.3](https://github.com/mtzvfilm/PRO8/releases/latest) — macOS: CLAP + VST3 + AU in one installer · Windows: VST3 + CLAP
 
 ## Sound demos
 
@@ -79,11 +79,11 @@ sings — not a generic "analog-style" synth.
 
 ## Installing
 
-Download `PRO8-1.0.2.pkg` from [Releases](https://github.com/mtzvfilm/PRO8/releases/latest). The installer is not signed
+Download `PRO8-1.0.3.pkg` from [Releases](https://github.com/mtzvfilm/PRO8/releases/latest). The installer is not signed
 with an Apple developer certificate: right-click it → **Open** (or System Settings → Privacy & Security → **Open Anyway**).
 The plugins are installed to `/Library/Audio/Plug-Ins`; presets live in `~/Library/Application Support/PRO8/Banks`.
 
-**Windows 10 / 11 (x64):** download `PRO8-1.0.2-windows-x64.zip`, copy the folder `PRO8.vst3` to
+**Windows 10 / 11 (x64):** download `PRO8-1.0.3-windows-x64.zip`, copy the folder `PRO8.vst3` to
 `C:\Program Files\Common Files\VST3\` and `PRO8.clap` to `C:\Program Files\Common Files\CLAP\`. The panel needs the
 Microsoft Edge WebView2 Runtime (part of Windows 10 / 11). Presets live in `%APPDATA%\PRO8\Banks`; projects and
 presets move between macOS and Windows.
@@ -99,7 +99,7 @@ CLAP, VST3 and AU, through [clap-wrapper](https://github.com/free-audio/clap-wra
     git clone --depth 1 https://github.com/free-audio/clap-wrapper.git plugin/third_party/clap-wrapper
     cmake -S plugin -B plugin/build -G Ninja -DCMAKE_BUILD_TYPE=Release
     cmake --build plugin/build          # installs to ~/Library/Audio/Plug-Ins
-    sh plugin/make_pkg.sh               # plugin/build/PRO8-1.0.2.pkg (CLAP + VST3 + AU)
+    sh plugin/make_pkg.sh               # plugin/build/PRO8-1.0.3.pkg (CLAP + VST3 + AU)
 
 ### Windows 10 / 11 (VST3 + CLAP)
 
@@ -109,7 +109,7 @@ Visual Studio 2022 with "Desktop development with C++", CMake and Git; the panel
     git clone --depth 1 https://github.com/free-audio/clap-wrapper.git plugin/third_party/clap-wrapper
     cmake -S plugin -B plugin/build -G "Visual Studio 17 2022" -A x64
     cmake --build plugin/build --config Release
-    powershell -ExecutionPolicy Bypass -File plugin/make_zip_win.ps1   # plugin/build/PRO8-1.0.2-windows-x64.zip
+    powershell -ExecutionPolicy Bypass -File plugin/make_zip_win.ps1   # plugin/build/PRO8-1.0.3-windows-x64.zip
 
 ## Layout
 

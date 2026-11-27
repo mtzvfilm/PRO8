@@ -4,7 +4,7 @@
 #   powershell -ExecutionPolicy Bypass -File plugin\make_zip_win.ps1
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$V = "1.0.2"
+$V = "1.0.3"
 $build = Join-Path $here "build"
 $out = Join-Path $build "out"
 

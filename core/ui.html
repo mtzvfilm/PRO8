@@ -122,7 +122,7 @@ html, body { margin:0; height:100%; background:#000; overflow:hidden; font-famil
   <div class="row" id="r3"></div>
   <div class="row" id="r4"></div>
 </div>
-<div id="foot"><span>VER. 1.0.2</span><span>DSP BY MTZVFILM · IG: MTZV_FILM</span></div>
+<div id="foot"><span>VER. 1.0.3</span><span>DSP BY MTZVFILM · IG: MTZV_FILM</span></div>
 <div class="drawer" id="fxpage">
   <h3>CHORUS</h3>
   <div class="srow"><span class="sl">ON</span><div class="tg" data-fx="0"><i></i></div></div>
@@ -418,16 +418,9 @@ window.setStatus = s => document.getElementById('status').innerHTML = s;
 window.setAB = () => {};
 window.setVintage = () => {};
 window.setHost = h => { if (h === 'plugin') { window.isPlugin = true; const v = document.getElementById('v_daw'); if (v) v.textContent = 'ON: TEMPO FROM THE HOST   OFF: OWN BPM (ARPEGGIATOR SECTION)'; } };
-let oct = 3; const KMAP = 'awsedftgyhujkolp;'; const held = {};
 // plugin: tell the host window when a text field has the focus (otherwise keys go to the DAW: Musical Typing etc.)
 addEventListener('focusin', e => { if (window.isPlugin && e.target.tagName === 'INPUT' && e.target.type !== 'range') send({ t: 'textfocus', on: 1 }); });
 addEventListener('focusout', e => { if (window.isPlugin && e.target.tagName === 'INPUT') send({ t: 'textfocus', on: 0 }); });
-addEventListener('keydown', e => {
-  if (window.isPlugin || e.repeat || e.metaKey || e.target.tagName === 'INPUT') return;   // plugin: the host plays the computer keyboard const k = e.key.toLowerCase();
-  if (k === 'z') { oct = Math.max(0, oct - 1); return; } if (k === 'x') { oct = Math.min(6, oct + 1); return; }
-  const i = KMAP.indexOf(k); if (i < 0) return; const m = 12 * oct + 24 + i; held[k] = m; send({ t: 'note', n: m, v: 100, on: 1 });
-});
-addEventListener('keyup', e => { if (window.isPlugin) return; const k = e.key.toLowerCase(); if (held[k] !== undefined) { send({ t: 'note', n: held[k], v: 0, on: 0 }); delete held[k]; } });
 document.getElementById('pdn').onclick = () => send({ t: 'prog', d: -1 });
 document.getElementById('pup').onclick = () => send({ t: 'prog', d: 1 });
 document.getElementById('bnk').onclick = () => send({ t: 'prog', d: 100 });

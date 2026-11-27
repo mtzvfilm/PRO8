@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.3 — 2026-11-27
+
+- Fix (macOS, Audio Unit): the panel stayed black in Logic, Ableton Live and other AU hosts. The AU wrapper starts the
+  plugin before all of its globals exist, and the path to the panel (ui.html) was wiped; the seed banks were not
+  copied on the first start for the same reason (they are now). CLAP and VST3 were not affected
+- Panel: lighter UI code, the unused computer-keyboard note handling is removed (in a DAW the host plays the
+  computer keyboard; text fields still tell the host when you type)
+
 ## 1.0.2 — 2026-11-26
 
 Windows version (VST3 + CLAP) and engine fixes.
